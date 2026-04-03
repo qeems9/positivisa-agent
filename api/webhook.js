@@ -67,28 +67,24 @@ async function processMessage(msg, botEnabled) {
   if (chatType && chatType !== "whatsapp") return;
   if (!contactId) return;
 
-  // --- Outgoing messages (manager/bot) — save + clear needsReply ---
+  // --- Outgoing messages ---
   if (isEcho || authorType === "manager" || authorType === "bot") {
-    if (text) {
-      var role = (authorType === "manager") ? "manager" : "assistant";
-      await addMessage(contactId, role, text);
-      // Clear needsReply AND escalated when manager responds
-      if (authorType === "manager") {
-        try {
-          var logKey = "log:" + contactId;
-          var log = await kv.get(logKey);
-          if (log) {
-            log.needsReply = false;
-            log.escalated = false;
-            log.messages = await getHistory(contactId);
-            log.updatedAt = new Date().toISOString();
-            await kv.set(logKey, log, { ex: 30 * 86400 });
-          }
-        } catch {}
-      } else {
-        await saveLog(contactId, chatId, channelId, {});
-      }
+    // Only save MANAGER messages (bot echo is already saved when we send it)
+    if (text && authorType === "manager") {
+      await addMessage(contactId, "manager", text);
+      try {
+        var logKey = "log:" + contactId;
+        var log = await kv.get(logKey);
+        if (log) {
+          log.needsReply = false;
+          log.escalated = false;
+          log.messages = await getHistory(contactId);
+          log.updatedAt = new Date().toISOString();
+          await kv.set(logKey, log, { ex: 30 * 86400 });
+        }
+      } catch {}
     }
+    // Bot echo — skip (already saved in the flow that sent it)
     return;
   }
 
