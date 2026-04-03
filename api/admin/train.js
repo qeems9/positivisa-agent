@@ -1,5 +1,6 @@
 const { checkAuth } = require("./_auth");
 const { getKnowledge, getSystemPrompt, formatKnowledgeBase } = require("../../lib/claude");
+const { kv } = require("../../lib/kv");
 
 module.exports = async function handler(req, res) {
   if (!checkAuth(req, res)) return;
@@ -15,14 +16,14 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "originalReply, correctedReply, and userMessage are required" });
     }
 
-    const [knowledge, prompt] = await Promise.all([getKnowledge(), getSystemPrompt()]);
+    const [knowledge, currentPrompt] = await Promise.all([getKnowledge(), getSystemPrompt()]);
     const knowledgeText = formatKnowledgeBase(knowledge);
 
-    const metaPrompt = `Ты — эксперт по настройке AI-ботов. Твоя задача: проанализировать ошибку бота и предложить конкретные изменения в промпт и/или базу знаний.
+    const metaPrompt = `Ты — эксперт по настройке промптов для AI-ботов. Твоя задача — обновить промпт бота на основе корректировки менеджера.
 
 ТЕКУЩИЙ ПРОМПТ БОТА:
 ---
-${prompt}
+${currentPrompt}
 ---
 
 ТЕКУЩАЯ БАЗА ЗНАНИЙ:
@@ -31,23 +32,32 @@ ${knowledgeText}
 ---
 
 КОНТЕКСТ ДИАЛОГА:
-${history.map(m => `${m.role === 'user' ? 'Клиент' : 'Бот'}: ${m.content}`).join('\n')}
+${history.map(m => \`\${m.role === 'user' ? 'Клиент' : 'Бот'}: \${m.content}\`).join('\n')}
 
 ПОСЛЕДНЕЕ СООБЩЕНИЕ КЛИЕНТА: ${userMessage}
-
 ОТВЕТ БОТА (неправильный): ${originalReply}
-
 КАК МЕНЕДЖЕР БЫ ОТВЕТИЛ (правильно): ${correctedReply}
 
 ---
 
-Проанализируй разницу между ответом бота и правильным ответом менеджера. Определи что именно бот сделал не так и предложи конкретные исправления.
+ТВОЯ ЗАДАЧА:
+1. Проанализируй разницу между ответом бота и правильным ответом менеджера
+2. Определи какое правило или инструкцию нужно добавить или изменить в промпте
+3. Верни ПОЛНЫЙ ОБНОВЛЁННЫЙ ПРОМПТ с внесёнными изменениями
 
-Верни ТОЛЬКО валидный JSON (без markdown) в формате:
+ПРАВИЛА РЕДАКТИРОВАНИЯ ПРОМПТА:
+- Если в промпте уже есть инструкция по этому кейсу — ЗАМЕНИ её на новую
+- Если такого кейса ещё нет — ДОБАВЬ новую инструкцию в подходящий раздел
+- Не удаляй существующие инструкции которые не связаны с этой корректировкой
+- Сохрани структуру и форматирование промпта (разделители ---, стрелки ->, и т.д.)
+- Пиши инструкции кратко и конкретно
+- Плейсхолдер {{KNOWLEDGE_BASE}} должен остаться на месте
+
+Верни ТОЛЬКО валидный JSON (без markdown, без \`\`\`) в формате:
 {
-  "explanation": "краткое объяснение что бот сделал не так и почему",
-  "promptSuggestion": "конкретный текст который нужно ДОБАВИТЬ в промпт (правило или инструкция), или null если промпт менять не нужно",
-  "knowledgeSuggestion": "что нужно изменить или добавить в базу знаний (конкретные данные), или null если базу менять не нужно"
+  "explanation": "что бот сделал не так и что изменено в промпте (1-2 предложения)",
+  "updatedPrompt": "полный обновлённый промпт со всеми изменениями",
+  "knowledgeSuggestion": "что нужно изменить в базе знаний (конкретные данные), или null если база не при чём"
 }`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -58,7 +68,7 @@ ${history.map(m => `${m.role === 'user' ? 'Клиент' : 'Бот'}: ${m.conten
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 1000,
+        max_tokens: 4000,
         messages: [{ role: "user", content: metaPrompt }],
       }),
     });
@@ -71,20 +81,21 @@ ${history.map(m => `${m.role === 'user' ? 'Клиент' : 'Бот'}: ${m.conten
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    // Parse JSON from response (handle possible markdown wrapping)
-    let suggestions;
+    let result;
     try {
       const jsonStr = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      suggestions = JSON.parse(jsonStr);
+      result = JSON.parse(jsonStr);
     } catch {
-      suggestions = {
-        explanation: content,
-        promptSuggestion: null,
-        knowledgeSuggestion: null,
-      };
+      return res.status(500).json({ error: "AI вернул невалидный JSON", raw: content });
     }
 
-    return res.status(200).json(suggestions);
+    // Auto-apply prompt if updatedPrompt is present
+    if (result.updatedPrompt) {
+      await kv.set("system_prompt", result.updatedPrompt);
+      result.applied = true;
+    }
+
+    return res.status(200).json(result);
   } catch (err) {
     console.error("Train error:", err);
     return res.status(500).json({ error: err.message });

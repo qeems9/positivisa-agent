@@ -495,8 +495,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
           </div>
           <div class="modal-body" id="train-modal-body"><div class="loading"><div class="spinner"></div> Анализирую...</div></div>
           <div class="modal-footer" id="train-modal-footer" style="display:none">
-            <button class="btn btn-outline" onclick="closeTrainModal()">Отклонить</button>
-            <button class="btn btn-primary" id="train-apply-btn" onclick="applyTrainSuggestions()">Применить изменения</button>
+            <button class="btn btn-primary" onclick="closeTrainModal()">Закрыть</button>
           </div>
         </div>
       </div>
@@ -979,12 +978,16 @@ async function submitEdit(idx) {
 
   if (correctedReply === originalReply) { cancelEdit(idx, originalReply); return; }
 
-  // Show modal with loading
+  // Update bubble text immediately
+  const textEl = document.getElementById('test-text-' + idx);
+  if (textEl) textEl.innerHTML = correctedReply.replace(/\n/g, '<br>');
+
+  // Show modal — AI analyzes and auto-applies
   const modal = document.getElementById('train-modal');
   const body = document.getElementById('train-modal-body');
   const footer = document.getElementById('train-modal-footer');
   modal.classList.add('show');
-  body.innerHTML = '<div class="loading"><div class="spinner"></div> AI анализирует разницу...</div>';
+  body.innerHTML = '<div class="loading"><div class="spinner"></div> AI анализирует и обновляет промпт...</div>';
   footer.style.display = 'none';
 
   try {
@@ -993,71 +996,47 @@ async function submitEdit(idx) {
       body: JSON.stringify({
         originalReply,
         correctedReply,
-        history: App.state.chatHistory.slice(0, -1), // all except last assistant
+        history: App.state.chatHistory.slice(0, -1),
         userMessage
       })
     });
-    trainSuggestions = await res.json();
+    const result = await res.json();
 
-    if (trainSuggestions.error) {
-      body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(trainSuggestions.error)}</p>`;
+    if (result.error) {
+      body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(result.error)}</p>`;
       return;
     }
 
     let html = '';
-    if (trainSuggestions.explanation) {
-      html += `<div class="suggestion-block explanation"><h4>Анализ</h4><pre>${esc(trainSuggestions.explanation)}</pre></div>`;
+
+    // Prompt was auto-applied by the server
+    if (result.applied) {
+      html += `<div class="suggestion-block" style="border-left:3px solid var(--success);background:var(--success-light)">
+        <h4 style="color:var(--success)">Промпт обновлён автоматически</h4></div>`;
     }
-    if (trainSuggestions.promptSuggestion) {
-      html += `<div class="suggestion-block prompt"><h4>Добавить в промпт</h4><pre>${esc(trainSuggestions.promptSuggestion)}</pre></div>`;
+
+    if (result.explanation) {
+      html += `<div class="suggestion-block explanation"><h4>Что изменено</h4><pre>${esc(result.explanation)}</pre></div>`;
     }
-    if (trainSuggestions.knowledgeSuggestion) {
-      html += `<div class="suggestion-block knowledge"><h4>Изменить в базе знаний</h4><pre>${esc(trainSuggestions.knowledgeSuggestion)}</pre></div>`;
+
+    if (result.knowledgeSuggestion) {
+      html += `<div class="suggestion-block knowledge"><h4>Рекомендация по базе знаний</h4><pre>${esc(result.knowledgeSuggestion)}</pre></div>`;
+      html += `<p class="text-secondary" style="font-size:12px;margin-top:8px">Базу знаний нужно обновить вручную во вкладке "База знаний"</p>`;
     }
-    if (!trainSuggestions.promptSuggestion && !trainSuggestions.knowledgeSuggestion) {
-      html += '<p class="text-secondary">AI не нашёл что менять. Возможно разница слишком незначительная.</p>';
+
+    if (!result.applied && !result.knowledgeSuggestion) {
+      html += '<p class="text-secondary">AI не нашёл что менять в промпте.</p>';
     }
+
     body.innerHTML = html;
-    if (trainSuggestions.promptSuggestion || trainSuggestions.knowledgeSuggestion) {
-      footer.style.display = 'flex';
-    }
+    footer.style.display = 'flex';
+
+    if (result.applied) showToast('Промпт обновлён');
   } catch (err) {
     body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(err.message)}</p>`;
   }
 
-  // Update the bubble with corrected text
-  const textEl = document.getElementById('test-text-' + idx);
-  if (textEl) textEl.innerHTML = correctedReply.replace(/\n/g, '<br>');
-}
-
-async function applyTrainSuggestions() {
-  if (!trainSuggestions) return;
-  const btn = document.getElementById('train-apply-btn');
-  btn.textContent = 'Применяю...'; btn.disabled = true;
-
-  try {
-    // Apply prompt changes
-    if (trainSuggestions.promptSuggestion) {
-      const res = await apiFetch('/prompt');
-      const data = await res.json();
-      const newPrompt = data.prompt + '\n\n' + trainSuggestions.promptSuggestion;
-      await apiFetch('/prompt', { method: 'POST', body: JSON.stringify({ prompt: newPrompt }) });
-    }
-
-    // Note: knowledge changes are described in text, not structured — show toast
-    if (trainSuggestions.knowledgeSuggestion) {
-      showToast('Предложение по базе знаний сохранено — примените вручную во вкладке База знаний', 'success');
-    }
-
-    if (trainSuggestions.promptSuggestion) {
-      showToast('Промпт обновлён');
-    }
-  } catch (err) {
-    showToast('Ошибка: ' + err.message, 'error');
-  }
-
-  btn.textContent = 'Применить изменения'; btn.disabled = false;
-  closeTrainModal();
+  saveChatToStorage();
 }
 
 function closeTrainModal() {
