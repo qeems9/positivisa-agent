@@ -11,6 +11,17 @@ module.exports = async function handler(req, res) {
   try {
     const { message, history = [] } = req.body;
 
+    // Debug: check env
+    if (message === "__debug_env__") {
+      return res.status(200).json({
+        hasOpenAI: !!process.env.OPENAI_API_KEY,
+        openAIPrefix: (process.env.OPENAI_API_KEY || "").substring(0, 10),
+        hasKVUrl: !!process.env.KV_REST_API_URL,
+        kvUrlPrefix: (process.env.KV_REST_API_URL || "").substring(0, 20),
+        nodeVersion: process.version,
+      });
+    }
+
     if (!message || typeof message !== "string") {
       return res.status(400).json({ error: "Message is required" });
     }
