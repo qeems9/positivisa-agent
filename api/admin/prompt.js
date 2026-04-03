@@ -7,15 +7,12 @@ module.exports = async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      // Try v2 format first
-      const v2 = await kv.get("system_prompt_v2");
-      if (v2 && v2.text) return res.status(200).json({ prompt: v2.text });
-      // Fallback to v1
-      const stored = await kv.get("system_prompt");
-      return res.status(200).json({ prompt: stored || DEFAULT_SYSTEM_PROMPT });
-    } catch {
-      return res.status(200).json({ prompt: DEFAULT_SYSTEM_PROMPT });
-    }
+      var v2 = await kv.get("system_prompt_v2");
+      if (v2 && v2.text && v2.text.length > 50) return res.status(200).json({ prompt: v2.text });
+      var stored = await kv.get("system_prompt");
+      if (stored && typeof stored === "string" && stored.length > 50) return res.status(200).json({ prompt: stored });
+    } catch {}
+    return res.status(200).json({ prompt: DEFAULT_SYSTEM_PROMPT });
   }
 
   if (req.method === "POST") {
