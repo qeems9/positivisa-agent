@@ -184,9 +184,6 @@ async function processMessage(msg) {
 
   // Send reply or escalate
   if (reply.shouldEscalate) {
-    if (reply.text) {
-      await sendMessage(channelId, chatId, reply.text);
-    }
     const fullHistory = await getHistory(contactId);
     await escalate(channelId, chatId, fullHistory);
   } else {
