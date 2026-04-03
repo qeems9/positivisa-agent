@@ -101,7 +101,7 @@ async function processMessage(msg, botEnabled) {
       if (text) await addMessage(contactId, "user", text);
       else await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
       await saveLog(contactId, chatId, channelId, true);
-      await escalate(channelId, chatId, await getHistory(contactId));
+      await escalate(channelId, chatId, await getHistory(contactId), "действующий клиент написал");
       return;
     }
   } catch {}
@@ -122,7 +122,7 @@ async function processMessage(msg, botEnabled) {
   if (!messageText && messageType !== "text") {
     await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
     await saveLog(contactId, chatId, channelId, true);
-    await escalate(channelId, chatId, await getHistory(contactId));
+    await escalate(channelId, chatId, await getHistory(contactId), "отправил медиа");
     return;
   }
 
@@ -147,7 +147,7 @@ async function processMessage(msg, botEnabled) {
     // AI timeout → escalate silently (no message to client)
     console.error("AI error:", err.message);
     await saveLog(contactId, chatId, channelId, true);
-    await escalate(channelId, chatId, await getHistory(contactId));
+    await escalate(channelId, chatId, await getHistory(contactId), "AI таймаут");
     return;
   }
 
@@ -158,7 +158,13 @@ async function processMessage(msg, botEnabled) {
     // Send bot's reply to client first, then notify group
     if (reply.text) await sendMessage(channelId, chatId, reply.text);
     await saveLog(contactId, chatId, channelId, true);
-    await escalate(channelId, chatId, await getHistory(contactId));
+    // Determine escalation reason from client's message
+    var msgLower = messageText.toLowerCase();
+    var escReason = "требуется менеджер";
+    if (msgLower.includes("оплат") || msgLower.includes("переводить") || msgLower.includes("начнем") || msgLower.includes("начать") || msgLower.includes("счёт") || msgLower.includes("счет") || msgLower.includes("kaspi")) {
+      escReason = "хочет оплатить";
+    }
+    await escalate(channelId, chatId, await getHistory(contactId), escReason);
   } else {
     await sendMessage(channelId, chatId, reply.text);
     await saveLog(contactId, chatId, channelId, false);
