@@ -59,9 +59,27 @@ async function processMessage(msg, botEnabled) {
   const contactId = chatId;
 
   if (chatType && chatType !== "whatsapp") return;
-  if (isEcho || authorType === "manager" || authorType === "bot") return;
-  if (!text && messageType === "text") return;
   if (!contactId) return;
+
+  // Outgoing messages (from manager or bot echo) — save to log but don't process
+  if (isEcho || authorType === "manager" || authorType === "bot") {
+    if (text) {
+      await addMessage(contactId, "assistant", text);
+      try {
+        const updatedHistory = await getHistory(contactId);
+        const logKey = `log:${contactId}`;
+        const existing = await kv.get(logKey);
+        if (existing) {
+          existing.messages = updatedHistory;
+          existing.updatedAt = new Date().toISOString();
+          await kv.set(logKey, existing, { ex: 30 * 86400 });
+        }
+      } catch {}
+    }
+    return;
+  }
+
+  if (!text && messageType === "text") return;
 
   // --- Dedup ---
   if (messageId) {

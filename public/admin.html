@@ -899,9 +899,30 @@ async function sendChat() {
     App.state.chatHistory.push({ role: 'user', content: text });
     App.state.chatHistory.push({ role: 'assistant', content: reply });
     appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed, userMsg);
+    saveChatToStorage();
   } catch (err) { appendTestMsg('bot', 'Ошибка: ' + (err.message||'')); }
 }
-function resetChat() { App.state.chatHistory = []; testMsgIndex = 0; document.getElementById('test-messages').innerHTML = ''; }
+function resetChat() { App.state.chatHistory = []; testMsgIndex = 0; document.getElementById('test-messages').innerHTML = ''; saveChatToStorage(); }
+function saveChatToStorage() {
+  try {
+    const msgs = document.getElementById('test-messages').innerHTML;
+    localStorage.setItem('pv_chat_history', JSON.stringify(App.state.chatHistory));
+    localStorage.setItem('pv_chat_html', msgs);
+    localStorage.setItem('pv_chat_idx', testMsgIndex);
+  } catch {}
+}
+function loadChatFromStorage() {
+  try {
+    const history = JSON.parse(localStorage.getItem('pv_chat_history') || '[]');
+    const html = localStorage.getItem('pv_chat_html') || '';
+    const idx = parseInt(localStorage.getItem('pv_chat_idx') || '0');
+    if (history.length > 0 && html) {
+      App.state.chatHistory = history;
+      document.getElementById('test-messages').innerHTML = html;
+      testMsgIndex = idx;
+    }
+  } catch {}
+}
 
 function appendTestMsg(role, text, escalate, tokens, userMsg) {
   const idx = testMsgIndex++;
@@ -1047,6 +1068,7 @@ function closeTrainModal() {
 // ===== INIT =====
 loadBotStatus();
 loadDashboard();
+loadChatFromStorage();
 </script>
 </body>
 </html>
