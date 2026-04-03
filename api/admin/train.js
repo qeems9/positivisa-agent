@@ -1,5 +1,5 @@
 const { checkAuth } = require("./_auth");
-const { getKnowledge, getSystemPrompt, formatKnowledgeBase } = require("../../lib/claude");
+const { getSystemPrompt } = require("../../lib/claude");
 const { kv } = require("../../lib/kv");
 
 module.exports = async function handler(req, res) {
@@ -10,17 +10,14 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { originalReply, correctedReply, history, userMessage } = req.body;
+    var { originalReply, correctedReply, history, userMessage } = req.body;
 
     if (!originalReply || !correctedReply || !userMessage) {
-      return res.status(400).json({ error: "originalReply, correctedReply, and userMessage are required" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const currentPrompt = await getSystemPrompt();
-    const knowledge = await getKnowledge();
-    const knowledgeText = formatKnowledgeBase(knowledge);
+    var currentPrompt = await getSystemPrompt();
 
-    // Build dialog context
     var dialogContext = "";
     if (history && history.length > 0) {
       dialogContext = history.map(function(m) {
@@ -28,50 +25,20 @@ module.exports = async function handler(req, res) {
       }).join("\n");
     }
 
+    // Compact meta-prompt: no knowledge base, ask for diff not full rewrite
     var metaPrompt = [
-      "Ты — эксперт по настройке промптов для AI-ботов. Твоя задача — обновить промпт бота на основе корректировки менеджера.",
+      "Проанализируй ошибку бота и верни КОРОТКУЮ инструкцию для добавления в промпт.",
       "",
-      "ТЕКУЩИЙ ПРОМПТ БОТА:",
-      "---",
-      currentPrompt,
-      "---",
+      "Клиент написал: " + userMessage,
+      dialogContext ? "Контекст: " + dialogContext : "",
+      "Бот ответил: " + originalReply,
+      "Правильный ответ: " + correctedReply,
       "",
-      "ТЕКУЩАЯ БАЗА ЗНАНИЙ:",
-      "---",
-      knowledgeText,
-      "---",
-      "",
-      "КОНТЕКСТ ДИАЛОГА:",
-      dialogContext,
-      "",
-      "ПОСЛЕДНЕЕ СООБЩЕНИЕ КЛИЕНТА: " + userMessage,
-      "ОТВЕТ БОТА (неправильный): " + originalReply,
-      "КАК МЕНЕДЖЕР БЫ ОТВЕТИЛ (правильно): " + correctedReply,
-      "",
-      "---",
-      "",
-      "ТВОЯ ЗАДАЧА:",
-      "1. Проанализируй разницу между ответом бота и правильным ответом менеджера",
-      "2. Определи какое правило или инструкцию нужно добавить или изменить в промпте",
-      "3. Верни ПОЛНЫЙ ОБНОВЛЁННЫЙ ПРОМПТ с внесёнными изменениями",
-      "",
-      "ПРАВИЛА РЕДАКТИРОВАНИЯ ПРОМПТА:",
-      "- Если в промпте уже есть инструкция по этому кейсу — ЗАМЕНИ её на новую",
-      "- Если такого кейса ещё нет — ДОБАВЬ новую инструкцию в подходящий раздел",
-      "- Не удаляй существующие инструкции которые не связаны с этой корректировкой",
-      "- Сохрани структуру и форматирование промпта (разделители ---, стрелки ->, и т.д.)",
-      "- Пиши инструкции кратко и конкретно",
-      "- Плейсхолдер {{KNOWLEDGE_BASE}} должен остаться на месте",
-      "",
-      'Верни ТОЛЬКО валидный JSON (без markdown, без обёрток) в формате:',
-      '{',
-      '  "explanation": "что бот сделал не так и что изменено в промпте (1-2 предложения)",',
-      '  "updatedPrompt": "полный обновлённый промпт со всеми изменениями",',
-      '  "knowledgeSuggestion": "что нужно изменить в базе знаний, или null"',
-      '}'
-    ].join("\n");
+      "Верни JSON без markdown:",
+      '{"explanation":"что не так (1 предложение)","rule":"новое правило для промпта (1-2 предложения, императив)","section":"в какой раздел добавить: ПРАВИЛА или ЭТАПЫ КВАЛИФИКАЦИИ или ЗАКРЫТИЕ НА ОПЛАТУ или новый"}'
+    ].filter(Boolean).join("\n");
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    var response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -79,14 +46,14 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 4000,
+        max_tokens: 300,
         messages: [{ role: "user", content: metaPrompt }],
       }),
     });
 
     if (!response.ok) {
       var errBody = await response.text();
-      throw new Error("OpenAI API " + response.status + ": " + errBody);
+      throw new Error("OpenAI " + response.status);
     }
 
     var data = await response.json();
@@ -97,12 +64,44 @@ module.exports = async function handler(req, res) {
       var jsonStr = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       result = JSON.parse(jsonStr);
     } catch (e) {
-      return res.status(500).json({ error: "AI вернул невалидный JSON", raw: content.substring(0, 500) });
+      return res.status(500).json({ error: "AI вернул невалидный ответ" });
     }
 
-    // Auto-apply prompt
-    if (result.updatedPrompt) {
-      await kv.set("system_prompt_v2", { text: result.updatedPrompt });
+    // Auto-apply: append rule to prompt
+    if (result.rule) {
+      var section = result.section || "ПРАВИЛА";
+      var marker = "---\n\n" + section.toUpperCase() + ":";
+      var ruleText = "\n- " + result.rule;
+
+      var newPrompt;
+      if (currentPrompt.includes(marker)) {
+        // Find the section and append before next ---
+        var sectionIdx = currentPrompt.indexOf(marker);
+        var nextSeparator = currentPrompt.indexOf("\n---", sectionIdx + marker.length);
+        if (nextSeparator === -1) {
+          // Last section — append at end
+          newPrompt = currentPrompt + ruleText;
+        } else {
+          newPrompt = currentPrompt.slice(0, nextSeparator) + ruleText + currentPrompt.slice(nextSeparator);
+        }
+      } else {
+        // Section not found — append to ПРАВИЛА
+        var rulesIdx = currentPrompt.lastIndexOf("ПРАВИЛА:");
+        if (rulesIdx !== -1) {
+          var nextSep = currentPrompt.indexOf("\n---", rulesIdx);
+          if (nextSep === -1) {
+            newPrompt = currentPrompt + ruleText;
+          } else {
+            newPrompt = currentPrompt.slice(0, nextSep) + ruleText + currentPrompt.slice(nextSep);
+          }
+        } else {
+          // Fallback — append at end
+          newPrompt = currentPrompt + "\n" + ruleText;
+        }
+      }
+
+      // Save via v2 wrapper (JSON object to avoid Upstash string issues)
+      await kv.set("system_prompt_v2", { text: newPrompt });
       result.applied = true;
     }
 
