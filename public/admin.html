@@ -241,16 +241,21 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .conv-no-channel { padding: 10px 16px; background: var(--warning-light); font-size: 13px; color: #92400e; text-align: center; }
 
 /* ===== PAGE: KNOWLEDGE ===== */
-.dir-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
-.dir-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; transition: box-shadow 0.2s; }
-.dir-card:hover { box-shadow: var(--shadow); }
-.dir-card-header { padding: 16px 18px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
-.dir-card-header h4 { font-size: 15px; font-weight: 600; }
-.dir-card-info { font-size: 13px; color: var(--text-secondary); }
-.dir-card-chevron { transition: transform 0.2s; color: var(--text-tertiary); }
-.dir-card-chevron.open { transform: rotate(180deg); }
-.dir-card-body { padding: 0 18px 18px; display: none; border-top: 1px solid var(--border-light); padding-top: 16px; }
-.dir-card-body.open { display: block; }
+.kb-table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
+.kb-table th { padding: 10px 14px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-align: left; text-transform: uppercase; letter-spacing: 0.5px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.kb-table td { padding: 8px 14px; font-size: 14px; border-bottom: 1px solid var(--border-light); vertical-align: top; }
+.kb-table tr:hover td { background: var(--bg); }
+.kb-table .kb-input { width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: 4px; font-size: 13px; font-family: inherit; outline: none; background: transparent; transition: all 0.15s; }
+.kb-table .kb-input:hover { border-color: var(--border); background: var(--card); }
+.kb-table .kb-input:focus { border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+.kb-country { font-weight: 600; font-size: 14px; }
+.kb-notes { width: 100%; }
+.kb-notes-area { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; outline: none; resize: vertical; min-height: 60px; transition: border-color 0.15s; }
+.kb-notes-area:focus { border-color: var(--accent); }
+.kb-fees { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.kb-expand-btn { background: none; border: none; cursor: pointer; color: var(--accent); font-size: 12px; padding: 2px 0; }
+.kb-detail { display: none; padding: 12px 14px; background: var(--bg); }
+.kb-detail.open { display: table-row; }
 .faq-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-light); align-items: flex-start; }
 .faq-row:nth-child(even) { background: var(--bg); margin: 0 -4px; padding: 10px 4px; border-radius: 4px; }
 
@@ -452,7 +457,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
       <div id="knowledge-loading" class="loading"><div class="spinner"></div> Загрузка...</div>
       <div id="knowledge-content" style="display:none">
         <div class="section-title mb-8">Направления</div>
-        <div class="dir-grid" id="directions-list"></div>
+        <div id="directions-list"></div>
         <button class="btn btn-outline mt-16" onclick="addDirection()">+ Добавить направление</button>
         <div class="section-title mt-24 mb-8">FAQ</div>
         <div class="card"><div class="card-body" id="faq-body"></div></div>
@@ -843,49 +848,60 @@ async function loadKnowledge() {
   } catch (err) { showToast('Ошибка: ' + err.message, 'error'); }
 }
 function renderKnowledge() {
-  const k = App.state.knowledge;
-  const list = document.getElementById('directions-list');
-  list.innerHTML = k.directions.map((dir, i) => `
-    <div class="dir-card">
-      <div class="dir-card-header" onclick="toggleDir(${i})">
-        <div><h4>${esc(dir.country)}</h4><div class="dir-card-info">${esc(dir.price)} | ${esc(dir.processingTime||'')}</div></div>
-        <svg class="dir-card-chevron" id="chev-${i}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="dir-card-body" id="dir-body-${i}">
-        <div class="field"><label class="field-label">Страна</label><input class="input" value="${esc(dir.country)}" onchange="k().directions[${i}].country=this.value"></div>
-        <div class="flex gap-12">
-          <div class="flex-1 field"><label class="field-label">Стоимость</label><input class="input" value="${esc(dir.price)}" onchange="k().directions[${i}].price=this.value"></div>
-          <div class="flex-1 field"><label class="field-label">Сроки</label><input class="input" value="${esc(dir.processingTime||'')}" onchange="k().directions[${i}].processingTime=this.value"></div>
-        </div>
-        <div class="field"><label class="field-label">Типы виз (через запятую)</label><input class="input" value="${esc(dir.visaTypes.join(', '))}" onchange="k().directions[${i}].visaTypes=this.value.split(',').map(s=>s.trim())"></div>
-        <div class="field"><label class="field-label">Что входит (каждый с новой строки)</label><textarea class="textarea" rows="4" onchange="k().directions[${i}].services=this.value.split('\\n').filter(s=>s.trim())">${(dir.services||[]).join('\n')}</textarea></div>
-        <div class="field"><label class="field-label">Доп. сборы (каждый с новой строки)</label><textarea class="textarea" rows="3" onchange="k().directions[${i}].additionalFees=this.value.split('\\n').filter(s=>s.trim())">${(dir.additionalFees||[]).join('\n')}</textarea></div>
-        <div class="field"><label class="field-label">Документы (каждый с новой строки)</label><textarea class="textarea" rows="4" onchange="k().directions[${i}].documents=this.value.split('\\n').filter(s=>s.trim())">${(dir.documents||[]).join('\n')}</textarea></div>
-        <div class="field"><label class="field-label">Примечание</label><input class="input" value="${esc(dir.notes||'')}" onchange="k().directions[${i}].notes=this.value"></div>
-        <button class="btn btn-sm btn-danger mt-8" onclick="removeDirection(${i})">Удалить направление</button>
-      </div>
-    </div>`).join('');
+  var kn = App.state.knowledge;
+  var list = document.getElementById('directions-list');
+
+  // Main table with key variables
+  var html = '<table class="kb-table"><thead><tr>' +
+    '<th>Страна</th><th>Стоимость</th><th>Сроки</th><th>Доп. сборы</th><th></th>' +
+    '</tr></thead><tbody>';
+
+  kn.directions.forEach(function(dir, i) {
+    var fees = (dir.additionalFees || []).join('; ');
+    html += '<tr>' +
+      '<td><input class="kb-input kb-country" value="' + esc(dir.country) + '" onchange="k().directions[' + i + '].country=this.value"></td>' +
+      '<td><input class="kb-input" value="' + esc(dir.price) + '" onchange="k().directions[' + i + '].price=this.value" style="width:120px"></td>' +
+      '<td><input class="kb-input" value="' + esc(dir.processingTime || '') + '" onchange="k().directions[' + i + '].processingTime=this.value" style="width:140px"></td>' +
+      '<td><div class="kb-fees">' + esc(fees || '-') + '</div><button class="kb-expand-btn" onclick="toggleKbDetail(' + i + ')">Подробнее</button></td>' +
+      '<td><button class="btn-icon" onclick="removeDirection(' + i + ')" title="Удалить"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button></td>' +
+      '</tr>';
+
+    // Expandable detail row
+    html += '<tr class="kb-detail" id="kb-detail-' + i + '"><td colspan="5" style="padding:16px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+      '<div class="field"><label class="field-label">Типы виз</label><input class="input" value="' + esc(dir.visaTypes.join(', ')) + '" onchange="k().directions[' + i + '].visaTypes=this.value.split(\',\').map(function(s){return s.trim()})"></div>' +
+      '<div class="field"><label class="field-label">Доп. сборы (каждый с новой строки)</label><textarea class="kb-notes-area" rows="2" onchange="k().directions[' + i + '].additionalFees=this.value.split(\'\\n\').filter(function(s){return s.trim()})">' + (dir.additionalFees || []).join('\n') + '</textarea></div>' +
+      '</div>' +
+      '<div class="field mt-8"><label class="field-label">Примечания (особенности подачи в этой стране)</label>' +
+      '<textarea class="kb-notes-area" rows="3" placeholder="Особенности подачи, требования, нюансы записи в консульство..." onchange="k().directions[' + i + '].notes=this.value">' + esc(dir.notes || '') + '</textarea></div>' +
+      '</td></tr>';
+  });
+
+  html += '</tbody></table>';
+  list.innerHTML = html;
+
   // FAQ
-  const faq = document.getElementById('faq-body');
-  faq.innerHTML = k.faq.map((item, i) => `
-    <div class="faq-row">
-      <div class="flex-1"><input class="input" value="${esc(item.q)}" placeholder="Вопрос" onchange="k().faq[${i}].q=this.value"></div>
-      <div class="flex-1"><input class="input" value="${esc(item.a)}" placeholder="Ответ" onchange="k().faq[${i}].a=this.value"></div>
-      <button class="btn-icon" onclick="k().faq.splice(${i},1);renderKnowledge()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>
-    </div>`).join('');
+  var faq = document.getElementById('faq-body');
+  faq.innerHTML = kn.faq.map(function(item, i) {
+    return '<div class="faq-row">' +
+      '<div class="flex-1"><input class="input" value="' + esc(item.q) + '" placeholder="Вопрос" onchange="k().faq[' + i + '].q=this.value"></div>' +
+      '<div class="flex-1"><input class="input" value="' + esc(item.a) + '" placeholder="Ответ" onchange="k().faq[' + i + '].a=this.value"></div>' +
+      '<button class="btn-icon" onclick="k().faq.splice(' + i + ',1);renderKnowledge()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></button>' +
+      '</div>';
+  }).join('');
+
   // Contacts
-  document.getElementById('contact-name').value = k.contacts.managerName || '';
-  document.getElementById('contact-hours').value = k.contacts.workingHours || '';
-  document.getElementById('contact-website').value = k.contacts.website || '';
-  document.getElementById('contact-address').value = k.contacts.address || '';
+  document.getElementById('contact-name').value = kn.contacts.managerName || '';
+  document.getElementById('contact-hours').value = kn.contacts.workingHours || '';
+  document.getElementById('contact-website').value = kn.contacts.website || '';
+  document.getElementById('contact-address').value = kn.contacts.address || '';
 }
 function k() { return App.state.knowledge; }
-function toggleDir(i) {
-  document.getElementById('dir-body-' + i).classList.toggle('open');
-  document.getElementById('chev-' + i).classList.toggle('open');
+function toggleKbDetail(i) {
+  document.getElementById('kb-detail-' + i).classList.toggle('open');
 }
 function addDirection() {
-  k().directions.push({ country: 'Новое направление', visaTypes: ['туристическая'], price: '', processingTime: '', services: [], additionalFees: [], documents: ['Загранпаспорт'], notes: '' });
+  k().directions.push({ country: 'Новое направление', visaTypes: ['туристическая'], price: '', processingTime: '', services: [], additionalFees: [], documents: [], notes: '' });
   renderKnowledge();
 }
 function removeDirection(i) { k().directions.splice(i, 1); renderKnowledge(); }
