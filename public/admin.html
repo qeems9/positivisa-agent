@@ -300,11 +300,16 @@ async function sendChat() {
       body: JSON.stringify({ message: text, history: chatHistory })
     });
     const data = await res.json();
+    if (data.error) {
+      appendMsg('assistant', 'Ошибка API: ' + data.error);
+      return;
+    }
+    const reply = data.reply || '(пустой ответ)';
     chatHistory.push({ role: 'user', content: text });
-    chatHistory.push({ role: 'assistant', content: data.reply });
-    appendMsg('assistant', data.reply, data.shouldEscalate, data.tokensUsed);
+    chatHistory.push({ role: 'assistant', content: reply });
+    appendMsg('assistant', reply, data.shouldEscalate, data.tokensUsed);
   } catch (err) {
-    appendMsg('assistant', 'Ошибка: ' + err.message);
+    appendMsg('assistant', 'Ошибка: ' + (err.message || 'неизвестная ошибка'));
   }
 }
 
@@ -321,7 +326,7 @@ function resetChat() {
 function appendMsg(role, text, escalate, tokens) {
   const div = document.createElement('div');
   div.className = 'chat-msg ' + role;
-  let html = text.replace(/\n/g, '<br>');
+  let html = String(text || '').replace(/\n/g, '<br>');
   if (escalate) html += '<br><span class="escalate-flag">ESCALATE</span>';
   if (tokens) html += '<br><span class="meta">' + tokens + ' tokens</span>';
   div.innerHTML = html;
