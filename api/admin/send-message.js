@@ -33,6 +33,7 @@ module.exports = async function handler(req, res) {
       if (log) {
         log.messages = log.messages || [];
         log.messages.push({ role: "admin", content: text });
+        log.needsReply = false;
         log.updatedAt = new Date().toISOString();
         await kv.set(logKey, log, { ex: 30 * 86400 });
       }

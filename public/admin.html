@@ -194,6 +194,16 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
   border: none; background: var(--bg); color: var(--text-secondary); transition: all 0.15s;
 }
 .conv-filter.active { background: var(--accent); color: #fff; }
+.conv-cnt { font-size: 11px; opacity: 0.7; }
+.conv-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+.conv-badge.paid { background: #fef3c7; color: #92400e; }
+.conv-badge.needs { background: var(--danger-light); color: var(--danger); }
+.conv-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.conv-toggle input { display: none; }
+.conv-toggle-track { width: 36px; height: 20px; border-radius: 10px; background: #cbd5e1; position: relative; transition: background 0.2s; flex-shrink: 0; }
+.conv-toggle input:checked + .conv-toggle-track { background: var(--danger); }
+.conv-toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.conv-toggle input:checked + .conv-toggle-track::after { transform: translateX(16px); }
 .conv-items { flex: 1; overflow-y: auto; }
 .conv-item {
   display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; cursor: pointer;
@@ -445,8 +455,9 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
               <input class="conv-search" placeholder="Поиск по номеру..." oninput="filterConversations(this.value)">
             </div>
             <div class="conv-filters">
-              <button class="conv-filter active" onclick="setConvFilter('all', this)">Все</button>
-              <button class="conv-filter" onclick="setConvFilter('escalated', this)">Ожидают ответа</button>
+              <button class="conv-filter active" onclick="setConvFilter('all', this)">Все <span id="cnt-all" class="conv-cnt"></span></button>
+              <button class="conv-filter" onclick="setConvFilter('needsReply', this)">Без ответа <span id="cnt-needs" class="conv-cnt"></span></button>
+              <button class="conv-filter" onclick="setConvFilter('escalated', this)">Эскалации <span id="cnt-esc" class="conv-cnt"></span></button>
             </div>
           </div>
           <div class="conv-items" id="conv-items"><div class="loading"><div class="spinner"></div> Загрузка...</div></div>
@@ -756,22 +767,42 @@ async function loadConversations() {
   } catch (err) { document.getElementById('conv-items').innerHTML = '<p class="text-secondary" style="padding:20px">Ошибка: ' + err.message + '</p>'; }
 }
 function renderConvList() {
-  let list = App.state.conversations;
-  if (App.state.convFilter === 'escalated') list = list.filter(l => l.escalated && !l.resolved);
-  if (App.state.searchQuery) list = list.filter(l => (l.phone||l.contactId||'').includes(App.state.searchQuery));
-  const el = document.getElementById('conv-items');
+  var all = App.state.conversations;
+  var needsCount = all.filter(function(l) { return l.needsReply; }).length;
+  var escCount = all.filter(function(l) { return l.escalated && !l.resolved; }).length;
+
+  // Update counters
+  document.getElementById('cnt-all').textContent = all.length || '';
+  document.getElementById('cnt-needs').textContent = needsCount || '';
+  document.getElementById('cnt-esc').textContent = escCount || '';
+
+  // Update nav badge
+  var badge = document.getElementById('nav-esc-badge');
+  if (needsCount > 0) { badge.textContent = needsCount; badge.style.display = ''; }
+  else { badge.style.display = 'none'; }
+
+  var list = all;
+  if (App.state.convFilter === 'needsReply') list = all.filter(function(l) { return l.needsReply; });
+  if (App.state.convFilter === 'escalated') list = all.filter(function(l) { return l.escalated && !l.resolved; });
+  if (App.state.searchQuery) list = list.filter(function(l) { return (l.phone||l.contactId||'').includes(App.state.searchQuery); });
+
+  var el = document.getElementById('conv-items');
   if (list.length === 0) { el.innerHTML = '<p class="text-secondary" style="padding:20px;text-align:center">Нет диалогов</p>'; return; }
-  el.innerHTML = list.map(log => {
-    const lastMsg = (log.messages||[]).filter(m=>m.role==='user').pop();
-    const active = App.state.selectedConv?.contactId === log.contactId ? ' active' : '';
-    return `<div class="conv-item${active}" onclick="selectConv(${JSON.stringify(log).replace(/"/g,'&quot;')})">
-      <div class="conv-item-dot ${log.escalated && !log.resolved ? 'escalated' : 'normal'}"></div>
-      <div class="conv-item-body">
-        <div class="conv-item-phone">+${log.phone||log.contactId}</div>
-        <div class="conv-item-preview">${esc(truncate(lastMsg?.content, 45))}</div>
-      </div>
-      <div class="conv-item-time">${relTime(log.updatedAt)}</div>
-    </div>`;
+  el.innerHTML = list.map(function(log) {
+    var lastMsg = (log.messages||[]).filter(function(m){return m.role==='user'}).pop();
+    var active = App.state.selectedConv && App.state.selectedConv.contactId === log.contactId ? ' active' : '';
+    var badges = '';
+    if (log.isPaid) badges += '<span class="conv-badge paid">клиент</span>';
+    if (log.needsReply) badges += '<span class="conv-badge needs">без ответа</span>';
+    var dotClass = log.needsReply ? 'escalated' : 'normal';
+    return '<div class="conv-item' + active + '" onclick="selectConv(' + esc(JSON.stringify(log)).replace(/"/g,'&quot;') + ')">' +
+      '<div class="conv-item-dot ' + dotClass + '"></div>' +
+      '<div class="conv-item-body">' +
+        '<div class="conv-item-phone">+' + (log.phone||log.contactId) + badges + '</div>' +
+        '<div class="conv-item-preview">' + esc(truncate(lastMsg ? lastMsg.content : '', 45)) + '</div>' +
+      '</div>' +
+      '<div class="conv-item-time">' + relTime(log.updatedAt) + '</div>' +
+    '</div>';
   }).join('');
 }
 function setConvFilter(f, btn) {
@@ -817,11 +848,10 @@ function selectConv(log) {
       <button class="conv-reply-send" onclick="sendReply()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
     </div>`;
   }
-  html += `<div class="conv-actions">
-    <button class="btn btn-sm btn-danger" onclick="markPaid('${log.contactId}')">Оплатил — бот не отвечает</button>
-    <button class="btn btn-sm btn-outline" onclick="markActive('${log.contactId}')">Снять метку</button>
-    ${log.escalated ? `<button class="btn btn-sm btn-outline" onclick="resolveEsc('${log.contactId}')">Обработано</button>` : ''}
-  </div>`;
+  var isPaid = log.isPaid || false;
+  html += '<div class="conv-actions" style="align-items:center">' +
+    '<label class="conv-toggle"><input type="checkbox" ' + (isPaid ? 'checked' : '') + ' onchange="togglePaid(\'' + log.contactId + '\', this.checked)"><span class="conv-toggle-track"></span>Оплативший клиент</label>' +
+    '</div>';
   el.innerHTML = html;
   el.classList.add('mobile-show');
   setTimeout(() => { const thread = document.getElementById('conv-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }, 50);
@@ -859,11 +889,17 @@ async function sendReply() {
   }
   input.disabled = false; input.focus();
 }
-async function markPaid(cid) {
-  try { await apiFetch('/settings?action=clients', { method: 'POST', body: JSON.stringify({ contactId: cid, status: 'paid' }) }); showToast('Клиент помечен'); } catch (e) { showToast(e.message, 'error'); }
-}
-async function markActive(cid) {
-  try { await apiFetch('/settings?action=clients', { method: 'POST', body: JSON.stringify({ contactId: cid, status: 'active' }) }); showToast('Метка снята'); } catch (e) { showToast(e.message, 'error'); }
+async function togglePaid(cid, checked) {
+  try {
+    await apiFetch('/settings?action=clients', {
+      method: 'POST',
+      body: JSON.stringify({ contactId: cid, status: checked ? 'paid' : 'active' })
+    });
+    showToast(checked ? 'Клиент помечен как оплативший' : 'Метка снята');
+    // Update local state
+    if (App.state.selectedConv) App.state.selectedConv.isPaid = checked;
+    loadConversations();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 async function resolveEsc(cid) {
   try { await apiFetch('/escalations', { method: 'POST', body: JSON.stringify({ contactId: cid }) }); showToast('Обработано'); loadConversations(); closeConvDetail(); } catch (e) { showToast(e.message, 'error'); }

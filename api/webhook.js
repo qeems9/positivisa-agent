@@ -5,32 +5,23 @@ const { escalate } = require("../lib/escalation");
 const { transcribeVoice } = require("../lib/voice");
 const { kv } = require("../lib/kv");
 
-const processedIds = new Set();
+var processedIds = new Set();
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
     var body = req.body;
     if (body.test === true) return res.status(200).json({ ok: true });
 
     var messages = body.messages;
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    if (!messages || !Array.isArray(messages) || messages.length === 0)
       return res.status(200).json({ ok: true, skipped: "no_messages" });
-    }
 
     var botEnabled = true;
-    try {
-      var enabled = await kv.get("bot_enabled");
-      if (enabled === false) botEnabled = false;
-    } catch {}
+    try { if ((await kv.get("bot_enabled")) === false) botEnabled = false; } catch {}
 
-    for (var i = 0; i < messages.length; i++) {
-      await processMessage(messages[i], botEnabled);
-    }
-
+    for (var i = 0; i < messages.length; i++) await processMessage(messages[i], botEnabled);
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("Webhook error:", err);
@@ -38,18 +29,23 @@ module.exports = async function handler(req, res) {
   }
 };
 
-async function saveLog(contactId, chatId, channelId, escalated) {
+// Save log with optional needsReply flag
+async function saveLog(contactId, chatId, channelId, opts) {
   try {
     var history = await getHistory(contactId);
     var logKey = "log:" + contactId;
-    await kv.set(logKey, {
+    var existing = (await kv.get(logKey)) || {};
+    var log = {
       contactId: contactId,
       phone: chatId,
       channelId: channelId,
       messages: history,
-      escalated: escalated,
+      escalated: (opts && opts.escalated) || false,
+      needsReply: (opts && opts.needsReply) || false,
+      isPaid: (opts && opts.isPaid) || existing.isPaid || false,
       updatedAt: new Date().toISOString(),
-    }, { ex: 30 * 86400 });
+    };
+    await kv.set(logKey, log, { ex: 30 * 86400 });
     await kv.zadd("log:index", { score: Date.now(), member: logKey });
   } catch (err) {
     console.error("Log save error:", err.message);
@@ -71,12 +67,26 @@ async function processMessage(msg, botEnabled) {
   if (chatType && chatType !== "whatsapp") return;
   if (!contactId) return;
 
-  // --- Outgoing messages (manager/bot) — save to log only ---
+  // --- Outgoing messages (manager/bot) — save + clear needsReply ---
   if (isEcho || authorType === "manager" || authorType === "bot") {
     if (text) {
       var role = (authorType === "manager") ? "manager" : "assistant";
       await addMessage(contactId, role, text);
-      await saveLog(contactId, chatId, channelId, false);
+      // Clear needsReply when manager responds
+      if (authorType === "manager") {
+        try {
+          var logKey = "log:" + contactId;
+          var log = await kv.get(logKey);
+          if (log) {
+            log.needsReply = false;
+            log.messages = await getHistory(contactId);
+            log.updatedAt = new Date().toISOString();
+            await kv.set(logKey, log, { ex: 30 * 86400 });
+          }
+        } catch {}
+      } else {
+        await saveLog(contactId, chatId, channelId, {});
+      }
     }
     return;
   }
@@ -94,46 +104,46 @@ async function processMessage(msg, botEnabled) {
     processedIds.add(messageId);
   }
 
-  // --- Paid clients → save message + escalate silently ---
+  // --- Paid clients → save + mark needsReply (NO group notification) ---
   try {
     var clientStatus = await kv.get("client:" + contactId);
     if (clientStatus === "paid") {
       if (text) await addMessage(contactId, "user", text);
       else await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
-      await saveLog(contactId, chatId, channelId, true);
-      await escalate(channelId, chatId, await getHistory(contactId), "действующий клиент написал");
+      await saveLog(contactId, chatId, channelId, { needsReply: true, isPaid: true });
       return;
     }
   } catch {}
 
-  // --- Voice messages ---
+  // --- Voice ---
   var messageText = text;
   if ((messageType === "voice" || messageType === "audio") && contentUrl) {
     if (!botEnabled) {
       messageText = "[Голосовое сообщение]";
     } else {
       var transcribed = await transcribeVoice(contentUrl);
-      if (!transcribed) return; // Silent — voice not recognized
+      if (!transcribed) return;
       messageText = "[Голосовое] " + transcribed;
     }
   }
 
-  // --- Media without text (photo/video/file) → save + escalate silently ---
+  // --- Media (photo/video) → save + mark needsReply (NO group notification) ---
   if (!messageText && messageType !== "text") {
     await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
-    await saveLog(contactId, chatId, channelId, true);
-    await escalate(channelId, chatId, await getHistory(contactId), "отправил медиа");
+    await saveLog(contactId, chatId, channelId, { needsReply: true });
     return;
   }
 
   if (!messageText) return;
 
-  // --- Save incoming message ---
+  // --- Save incoming ---
   await addMessage(contactId, "user", messageText);
-  await saveLog(contactId, chatId, channelId, false);
 
-  // --- Bot disabled — message saved, no reply ---
-  if (!botEnabled) return;
+  // --- Bot disabled ---
+  if (!botEnabled) {
+    await saveLog(contactId, chatId, channelId, { needsReply: true });
+    return;
+  }
 
   // --- AI flow ---
   var history = await getHistory(contactId);
@@ -144,29 +154,26 @@ async function processMessage(msg, botEnabled) {
     });
     reply = await Promise.race([getReply(contactId, history, messageText), timeout]);
   } catch (err) {
-    // AI timeout → escalate silently (no message to client)
+    // AI timeout → mark needsReply (NO group notification)
     console.error("AI error:", err.message);
-    await saveLog(contactId, chatId, channelId, true);
-    await escalate(channelId, chatId, await getHistory(contactId), "AI таймаут");
+    await saveLog(contactId, chatId, channelId, { needsReply: true });
     return;
   }
 
-  // Save bot reply
   await addMessage(contactId, "assistant", reply.text);
 
   if (reply.shouldEscalate) {
-    // Send bot's reply to client first, then notify group
+    // Send reply to client, then notify group
     if (reply.text) await sendMessage(channelId, chatId, reply.text);
-    await saveLog(contactId, chatId, channelId, true);
-    // Determine escalation reason from client's message
     var msgLower = messageText.toLowerCase();
     var escReason = "требуется менеджер";
     if (msgLower.includes("оплат") || msgLower.includes("переводить") || msgLower.includes("начнем") || msgLower.includes("начать") || msgLower.includes("счёт") || msgLower.includes("счет") || msgLower.includes("kaspi")) {
       escReason = "хочет оплатить";
     }
+    await saveLog(contactId, chatId, channelId, { escalated: true, needsReply: true });
     await escalate(channelId, chatId, await getHistory(contactId), escReason);
   } else {
     await sendMessage(channelId, chatId, reply.text);
-    await saveLog(contactId, chatId, channelId, false);
+    await saveLog(contactId, chatId, channelId, {});
   }
 }
