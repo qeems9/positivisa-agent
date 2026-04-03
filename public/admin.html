@@ -1058,30 +1058,41 @@ async function submitEdit(idx) {
     }
 
     let html = '';
-
-    // Prompt was auto-applied by the server
-    if (result.applied) {
-      html += `<div class="suggestion-block" style="border-left:3px solid var(--success);background:var(--success-light)">
-        <h4 style="color:var(--success)">Промпт обновлён автоматически</h4></div>`;
-    }
+    var changes = result.changes || [];
+    var hasPrompt = changes.some(function(c) { return c === 'prompt'; });
+    var hasKnowledge = changes.some(function(c) { return c.startsWith('knowledge:'); });
 
     if (result.explanation) {
-      html += `<div class="suggestion-block explanation"><h4>Что изменено</h4><pre>${esc(result.explanation)}</pre></div>`;
+      html += '<div class="suggestion-block explanation"><h4>Анализ</h4><pre>' + esc(result.explanation) + '</pre></div>';
     }
 
-    if (result.knowledgeSuggestion) {
-      html += `<div class="suggestion-block knowledge"><h4>Рекомендация по базе знаний</h4><pre>${esc(result.knowledgeSuggestion)}</pre></div>`;
-      html += `<p class="text-secondary" style="font-size:12px;margin-top:8px">Базу знаний нужно обновить вручную во вкладке "База знаний"</p>`;
+    if (hasPrompt && result.rule) {
+      html += '<div class="suggestion-block prompt"><h4>Добавлено в промпт</h4><pre>' + esc(result.rule) + '</pre></div>';
     }
 
-    if (!result.applied && !result.knowledgeSuggestion) {
-      html += '<p class="text-secondary">AI не нашёл что менять в промпте.</p>';
+    if (hasKnowledge) {
+      var knowledgeChanges = changes.filter(function(c) { return c.startsWith('knowledge:'); }).join(', ');
+      html += '<div class="suggestion-block knowledge"><h4>Обновлено в базе знаний</h4><pre>' + esc(knowledgeChanges) + '</pre></div>';
+    }
+
+    if (result.applied) {
+      html += '<div class="suggestion-block" style="border-left:3px solid var(--success);background:var(--success-light)">' +
+        '<h4 style="color:var(--success)">Изменения применены автоматически</h4></div>';
+    }
+
+    if (!result.applied) {
+      html += '<p class="text-secondary">AI не нашёл что менять.</p>';
     }
 
     body.innerHTML = html;
     footer.style.display = 'flex';
 
-    if (result.applied) showToast('Промпт обновлён');
+    if (hasPrompt && hasKnowledge) showToast('Промпт и база знаний обновлены');
+    else if (hasPrompt) showToast('Промпт обновлён');
+    else if (hasKnowledge) showToast('База знаний обновлена');
+
+    // Reload knowledge if it was updated
+    if (hasKnowledge) App.state.knowledge = null;
   } catch (err) {
     body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(err.message)}</p>`;
   }

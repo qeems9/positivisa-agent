@@ -1,5 +1,5 @@
 const { checkAuth } = require("./_auth");
-const { getSystemPrompt } = require("../../lib/claude");
+const { getSystemPrompt, getKnowledge } = require("../../lib/claude");
 const { kv } = require("../../lib/kv");
 
 module.exports = async function handler(req, res) {
@@ -16,6 +16,7 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
+    var knowledge = await getKnowledge();
     var currentPrompt = await getSystemPrompt();
 
     var dialogContext = "";
@@ -25,17 +26,40 @@ module.exports = async function handler(req, res) {
       }).join("\n");
     }
 
-    // Compact meta-prompt: no knowledge base, ask for diff not full rewrite
+    // Build compact knowledge summary for AI (just countries and key data)
+    var knowledgeSummary = knowledge.directions.map(function(d) {
+      return d.country + ": " + d.price + ", " + (d.processingTime || "") +
+        (d.additionalFees ? ", сборы: " + d.additionalFees.join("; ") : "");
+    }).join("\n");
+
     var metaPrompt = [
-      "Проанализируй ошибку бота и верни КОРОТКУЮ инструкцию для добавления в промпт.",
+      "Проанализируй ошибку бота. Определи ТИП ошибки и верни исправление.",
       "",
-      "Клиент написал: " + userMessage,
+      "ТЕКУЩАЯ БАЗА ЗНАНИЙ (кратко):",
+      knowledgeSummary,
+      "",
+      "Клиент: " + userMessage,
       dialogContext ? "Контекст: " + dialogContext : "",
       "Бот ответил: " + originalReply,
       "Правильный ответ: " + correctedReply,
       "",
+      "ОПРЕДЕЛИ ТИП ОШИБКИ:",
+      "1. ПОВЕДЕНИЕ — бот неправильно общается (тон, порядок вопросов, формат ответа)",
+      "2. ДАННЫЕ — бот дал неправильные/неточные факты (цена, срок, документы, сборы, услуги)",
+      "3. ОБА — и поведение и данные неправильные",
+      "",
       "Верни JSON без markdown:",
-      '{"explanation":"что не так (1 предложение)","rule":"новое правило для промпта (1-2 предложения, императив)","section":"в какой раздел добавить: ПРАВИЛА или ЭТАПЫ КВАЛИФИКАЦИИ или ЗАКРЫТИЕ НА ОПЛАТУ или новый"}'
+      "{",
+      '  "type": "behavior" или "data" или "both",',
+      '  "explanation": "что не так (1 предложение)",',
+      '  "rule": "правило для промпта (императив, 1-2 предл.) или null если тип data",',
+      '  "knowledgeUpdate": {',
+      '    "country": "название страны из базы знаний или null",',
+      '    "field": "price или processingTime или additionalFees или services или documents или notes или null",',
+      '    "action": "set или add или remove",',
+      '    "value": "новое значение (строка или массив строк)"',
+      '  } или null если тип behavior',
+      "}"
     ].filter(Boolean).join("\n");
 
     var response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -46,13 +70,12 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        max_tokens: 300,
+        max_tokens: 500,
         messages: [{ role: "user", content: metaPrompt }],
       }),
     });
 
     if (!response.ok) {
-      var errBody = await response.text();
       throw new Error("OpenAI " + response.status);
     }
 
@@ -67,44 +90,78 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: "AI вернул невалидный ответ" });
     }
 
-    // Auto-apply: append rule to prompt
-    if (result.rule) {
-      var section = result.section || "ПРАВИЛА";
-      var marker = "---\n\n" + section.toUpperCase() + ":";
-      var ruleText = "\n- " + result.rule;
+    var changes = [];
 
+    // Apply prompt rule (behavior)
+    if (result.rule && (result.type === "behavior" || result.type === "both")) {
+      var ruleText = "\n- " + result.rule;
+      var rulesIdx = currentPrompt.lastIndexOf("ПРАВИЛА:");
       var newPrompt;
-      if (currentPrompt.includes(marker)) {
-        // Find the section and append before next ---
-        var sectionIdx = currentPrompt.indexOf(marker);
-        var nextSeparator = currentPrompt.indexOf("\n---", sectionIdx + marker.length);
-        if (nextSeparator === -1) {
-          // Last section — append at end
+      if (rulesIdx !== -1) {
+        var nextSep = currentPrompt.indexOf("\n---", rulesIdx);
+        if (nextSep === -1) {
           newPrompt = currentPrompt + ruleText;
         } else {
-          newPrompt = currentPrompt.slice(0, nextSeparator) + ruleText + currentPrompt.slice(nextSeparator);
+          newPrompt = currentPrompt.slice(0, nextSep) + ruleText + currentPrompt.slice(nextSep);
         }
       } else {
-        // Section not found — append to ПРАВИЛА
-        var rulesIdx = currentPrompt.lastIndexOf("ПРАВИЛА:");
-        if (rulesIdx !== -1) {
-          var nextSep = currentPrompt.indexOf("\n---", rulesIdx);
-          if (nextSep === -1) {
-            newPrompt = currentPrompt + ruleText;
-          } else {
-            newPrompt = currentPrompt.slice(0, nextSep) + ruleText + currentPrompt.slice(nextSep);
-          }
-        } else {
-          // Fallback — append at end
-          newPrompt = currentPrompt + "\n" + ruleText;
-        }
+        newPrompt = currentPrompt + "\n" + ruleText;
       }
-
-      // Save via v2 wrapper (JSON object to avoid Upstash string issues)
       await kv.set("system_prompt_v2", { text: newPrompt });
-      result.applied = true;
+      changes.push("prompt");
     }
 
+    // Apply knowledge update (data)
+    if (result.knowledgeUpdate && (result.type === "data" || result.type === "both")) {
+      var upd = result.knowledgeUpdate;
+      if (upd.country && upd.field && upd.value !== undefined) {
+        // Find direction by country name (fuzzy match)
+        var dirIdx = -1;
+        var countryLower = upd.country.toLowerCase();
+        for (var i = 0; i < knowledge.directions.length; i++) {
+          if (knowledge.directions[i].country.toLowerCase().includes(countryLower) ||
+              countryLower.includes(knowledge.directions[i].country.toLowerCase())) {
+            dirIdx = i;
+            break;
+          }
+        }
+
+        if (dirIdx !== -1) {
+          var dir = knowledge.directions[dirIdx];
+          var field = upd.field;
+          var action = upd.action || "set";
+          var value = upd.value;
+
+          if (field === "price" || field === "processingTime" || field === "notes") {
+            // String fields — always set
+            dir[field] = String(value);
+          } else if (field === "additionalFees" || field === "services" || field === "documents" || field === "visaTypes") {
+            // Array fields
+            if (!Array.isArray(dir[field])) dir[field] = [];
+            if (action === "set") {
+              dir[field] = Array.isArray(value) ? value : [value];
+            } else if (action === "add") {
+              var items = Array.isArray(value) ? value : [value];
+              for (var j = 0; j < items.length; j++) {
+                if (dir[field].indexOf(items[j]) === -1) dir[field].push(items[j]);
+              }
+            } else if (action === "remove") {
+              var toRemove = Array.isArray(value) ? value : [value];
+              dir[field] = dir[field].filter(function(item) {
+                return toRemove.indexOf(item) === -1;
+              });
+            }
+          }
+
+          knowledge.directions[dirIdx] = dir;
+          await kv.set("knowledge", knowledge);
+          changes.push("knowledge:" + dir.country + "." + field);
+        }
+      }
+    }
+
+    result.applied = changes.length > 0;
+    result.changes = changes;
     return res.status(200).json(result);
   } catch (err) {
     console.error("Train error:", err);
