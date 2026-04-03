@@ -948,6 +948,9 @@ function loadChatFromStorage() {
   } catch {}
 }
 
+// Store edit data separately (not in HTML)
+const testEditData = {};
+
 function appendTestMsg(role, text, escalate, tokens, userMsg) {
   const idx = testMsgIndex++;
   const div = document.createElement('div');
@@ -955,14 +958,15 @@ function appendTestMsg(role, text, escalate, tokens, userMsg) {
   div.id = 'test-bubble-' + idx;
   let html = '';
   if (role !== 'user') {
+    // Store data for editing
+    testEditData[idx] = { original: text || '', userMsg: userMsg || '' };
     html += '<div class="bubble-label bot">AI Bot</div>';
-    html += `<div id="test-text-${idx}">${String(text||'').replace(/\n/g, '<br>')}</div>`;
+    html += '<div id="test-text-' + idx + '">' + String(text||'').replace(/\n/g, '<br>') + '</div>';
     if (escalate) html += '<span style="color:var(--danger);font-weight:600;font-size:12px">ESCALATE</span>';
-    if (tokens) html += `<div class="bubble-meta">${tokens} tokens</div>`;
-    html += `<div class="bubble-actions"><button class="bubble-edit-btn" onclick="startEdit(${idx},'${esc(text).replace(/'/g,"\\'")}','${esc(userMsg||'').replace(/'/g,"\\'")}')">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      Исправить ответ
-    </button></div>`;
+    if (tokens) html += '<div class="bubble-meta">' + tokens + ' tokens</div>';
+    html += '<div class="bubble-actions"><button class="bubble-edit-btn" data-edit-idx="' + idx + '">';
+    html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+    html += ' Исправить ответ</button></div>';
   } else {
     html = String(text||'').replace(/\n/g, '<br>');
   }
@@ -971,35 +975,56 @@ function appendTestMsg(role, text, escalate, tokens, userMsg) {
   c.appendChild(div); c.scrollTop = c.scrollHeight;
 }
 
+// Delegated click handler for edit buttons (works after localStorage restore)
+document.addEventListener('click', function(e) {
+  const editBtn = e.target.closest('[data-edit-idx]');
+  if (editBtn) {
+    const idx = parseInt(editBtn.dataset.editIdx);
+    const data = testEditData[idx];
+    if (data) {
+      startEdit(idx, data.original, data.userMsg);
+    } else {
+      // Fallback: get text from the bubble itself
+      const textEl = document.getElementById('test-text-' + idx);
+      if (textEl) startEdit(idx, textEl.innerText, '');
+    }
+  }
+});
+
 function startEdit(idx, originalText, userMsg) {
-  const bubble = document.getElementById('test-bubble-' + idx);
   const textEl = document.getElementById('test-text-' + idx);
   if (!textEl) return;
-  // Store original text for train
-  bubble.dataset.original = originalText;
-  bubble.dataset.userMsg = userMsg;
-  // Replace text with textarea
-  const currentText = originalText.replace(/<br>/g, '\n');
-  textEl.innerHTML = `<textarea class="bubble-edit-area" id="test-edit-${idx}">${esc(currentText)}</textarea>
-    <div class="bubble-edit-actions">
-      <button class="btn btn-sm btn-primary" onclick="submitEdit(${idx})">Применить корректировку</button>
-      <button class="btn btn-sm btn-outline" onclick="cancelEdit(${idx},'${esc(originalText).replace(/'/g,"\\'")}')">Отмена</button>
-    </div>`;
+  // Store in testEditData
+  testEditData[idx] = { original: originalText, userMsg: userMsg };
+  var currentText = (originalText || '').replace(/<br>/g, '\n');
+  textEl.innerHTML = '<textarea class="bubble-edit-area" id="test-edit-' + idx + '">' + esc(currentText) + '</textarea>' +
+    '<div class="bubble-edit-actions">' +
+    '<button class="btn btn-sm btn-primary" data-submit-idx="' + idx + '">Применить корректировку</button>' +
+    '<button class="btn btn-sm btn-outline" data-cancel-idx="' + idx + '">Отмена</button>' +
+    '</div>';
   document.getElementById('test-edit-' + idx).focus();
 }
 
-function cancelEdit(idx, originalText) {
-  const textEl = document.getElementById('test-text-' + idx);
-  if (textEl) textEl.innerHTML = originalText.replace(/\n/g, '<br>');
-}
+// Delegated handlers for submit/cancel edit
+document.addEventListener('click', function(e) {
+  var submitBtn = e.target.closest('[data-submit-idx]');
+  if (submitBtn) { submitEdit(parseInt(submitBtn.dataset.submitIdx)); return; }
+  var cancelBtn = e.target.closest('[data-cancel-idx]');
+  if (cancelBtn) {
+    var ci = parseInt(cancelBtn.dataset.cancelIdx);
+    var data = testEditData[ci];
+    var textEl = document.getElementById('test-text-' + ci);
+    if (textEl && data) textEl.innerHTML = (data.original || '').replace(/\n/g, '<br>');
+  }
+});
 
 async function submitEdit(idx) {
-  const textarea = document.getElementById('test-edit-' + idx);
-  const bubble = document.getElementById('test-bubble-' + idx);
-  if (!textarea || !bubble) return;
-  const correctedReply = textarea.value.trim();
-  const originalReply = bubble.dataset.original || '';
-  const userMessage = bubble.dataset.userMsg || '';
+  var textarea = document.getElementById('test-edit-' + idx);
+  if (!textarea) return;
+  var data = testEditData[idx] || {};
+  var correctedReply = textarea.value.trim();
+  var originalReply = data.original || '';
+  var userMessage = data.userMsg || '';
 
   if (correctedReply === originalReply) { cancelEdit(idx, originalReply); return; }
 
