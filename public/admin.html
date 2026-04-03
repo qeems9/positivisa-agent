@@ -596,11 +596,18 @@ function toggleLogDetail(i, log, tr) {
   detailTr.id = 'log-detail-' + i;
   const td = document.createElement('td');
   td.colSpan = 4;
+  const cid = log.phone || log.contactId || '';
   let html = '<div class="dialog-detail">';
   (log.messages || []).forEach(m => {
     html += `<div class="chat-msg ${m.role}">${esc(m.content)}</div>`;
   });
   html += '</div>';
+  if (cid) {
+    html += `<div class="mt-8" style="display:flex;gap:8px">`;
+    html += `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();markPaid('${cid}')">Оплатил — бот не отвечает</button>`;
+    html += `<button class="btn btn-outline btn-sm" onclick="event.stopPropagation();markActive('${cid}')">Снять метку — бот отвечает</button>`;
+    html += `</div>`;
+  }
   td.innerHTML = html;
   detailTr.appendChild(td);
   tr.after(detailTr);
@@ -653,6 +660,30 @@ async function resolveEsc(contactId) {
     showToast('Отмечено как обработанное');
     loadEscalations();
     loadLogs();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+async function markPaid(contactId) {
+  try {
+    await apiFetch('/clients', {
+      method: 'POST',
+      body: JSON.stringify({ contactId, status: 'paid' })
+    });
+    showToast('Клиент помечен — бот не отвечает');
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+async function markActive(contactId) {
+  try {
+    await apiFetch('/clients', {
+      method: 'POST',
+      body: JSON.stringify({ contactId, status: 'active' })
+    });
+    showToast('Метка снята — бот отвечает');
   } catch (err) {
     showToast('Ошибка: ' + err.message, 'error');
   }

@@ -100,6 +100,16 @@ async function processMessage(msg) {
     processedIds.add(messageId);
   }
 
+  // --- Skip paid/existing clients (let manager handle) ---
+  try {
+    const clientStatus = await kv.get(`client:${contactId}`);
+    if (clientStatus === "paid") {
+      return; // Don't respond — manager handles paid clients
+    }
+  } catch {
+    // KV error — continue
+  }
+
   // --- Handle message by type ---
   let messageText = text;
 
