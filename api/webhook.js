@@ -3,7 +3,7 @@ const { sendMessage } = require("../lib/wazzup");
 const { getHistory, addMessage } = require("../lib/conversation");
 const { escalate } = require("../lib/escalation");
 const { transcribeVoice } = require("../lib/voice");
-const { kv } = require("@vercel/kv");
+const { kv } = require("../lib/kv");
 
 // Dedup: track processed message IDs in-memory per invocation
 const processedIds = new Set();

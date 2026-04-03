@@ -1,4 +1,4 @@
-const { kv } = require("@vercel/kv");
+const { kv } = require("../../lib/kv");
 const { checkAuth } = require("./_auth");
 const defaultKnowledge = require("../../config/knowledge");
 
