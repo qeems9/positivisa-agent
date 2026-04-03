@@ -21,22 +21,6 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // --- Debug: log raw webhook to KV (temporary) ---
-    try {
-      const debugLogs = (await kv.get("debug:webhooks")) || [];
-      debugLogs.unshift({
-        time: new Date().toISOString(),
-        messages: (body.messages || []).map((m) => ({
-          chatId: m.chatId,
-          chatType: m.chatType,
-          type: m.type,
-          text: (m.text || "").substring(0, 50),
-          isEcho: m.isEcho,
-          authorType: m.authorType,
-        })),
-      });
-      await kv.set("debug:webhooks", debugLogs.slice(0, 20), { ex: 3600 });
-    } catch {}
 
 
     // --- Check if bot is enabled ---
