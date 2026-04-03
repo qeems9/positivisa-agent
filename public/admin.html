@@ -126,6 +126,10 @@
     <h1>PositiVisa Admin</h1>
     <div class="subtitle">AI-агент управление</div>
   </div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+    <span id="bot-status-label" style="font-size:13px;opacity:0.9">Бот: ...</span>
+    <button class="btn" id="bot-toggle-btn" onclick="toggleBot()" style="min-width:80px;font-size:13px;background:#fff;color:#333">...</button>
+  </div>
 </div>
 
 <div class="tabs">
@@ -263,6 +267,54 @@ async function apiFetch(path, options = {}) {
   }
   return res;
 }
+
+// --- Bot toggle ---
+let botEnabled = true;
+
+async function loadBotStatus() {
+  try {
+    const res = await apiFetch('/bot-status');
+    const data = await res.json();
+    botEnabled = data.enabled;
+    updateBotUI();
+  } catch {}
+}
+
+function updateBotUI() {
+  const label = document.getElementById('bot-status-label');
+  const btn = document.getElementById('bot-toggle-btn');
+  if (botEnabled) {
+    label.textContent = 'Бот: активен';
+    btn.textContent = 'Выключить';
+    btn.style.background = '#fff';
+    btn.style.color = '#e53935';
+  } else {
+    label.textContent = 'Бот: выключен';
+    btn.textContent = 'Включить';
+    btn.style.background = '#43a047';
+    btn.style.color = '#fff';
+  }
+}
+
+async function toggleBot() {
+  try {
+    const res = await apiFetch('/bot-status', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: !botEnabled })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      botEnabled = data.enabled;
+      updateBotUI();
+      showToast(botEnabled ? 'Бот включён' : 'Бот выключен');
+    }
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+// Load bot status on page load
+loadBotStatus();
 
 // --- Tabs ---
 document.querySelectorAll('.tab').forEach(tab => {

@@ -21,6 +21,16 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // --- Check if bot is enabled ---
+    try {
+      const enabled = await kv.get("bot_enabled");
+      if (enabled === false) {
+        return res.status(200).json({ ok: true, skipped: "bot_disabled" });
+      }
+    } catch {
+      // KV error — bot continues working by default
+    }
+
     // --- Wazzup webhook: messages array ---
     const messages = body.messages;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
