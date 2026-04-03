@@ -36,24 +36,35 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // POST to mark escalation as resolved
+  // POST to update log flags
   if (req.method === "POST") {
     try {
-      const { contactId } = req.body;
-      if (!contactId) {
-        return res.status(400).json({ error: "contactId is required" });
+      var body = req.body;
+      var contactId = body.contactId;
+      if (!contactId) return res.status(400).json({ error: "contactId required" });
+
+      var logKey = "log:" + contactId;
+      var log = await kv.get(logKey);
+      if (!log) return res.status(404).json({ error: "Log not found" });
+
+      // Return dialog to bot (clear escalated)
+      if (body.returnToBot) {
+        log.escalated = false;
+        log.needsReply = false;
       }
 
-      const logKey = `log:${contactId}`;
-      const log = await kv.get(logKey);
-      if (!log) {
-        return res.status(404).json({ error: "Log not found" });
+      // Set/unset paid flag on log
+      if (body.setPaid !== undefined) {
+        log.isPaid = !!body.setPaid;
       }
 
-      log.resolved = true;
-      log.resolvedAt = new Date().toISOString();
+      // Resolve escalation
+      if (!body.returnToBot && !body.setPaid && body.setPaid === undefined) {
+        log.resolved = true;
+        log.resolvedAt = new Date().toISOString();
+      }
+
       await kv.set(logKey, log, { ex: 30 * 86400 });
-
       return res.status(200).json({ ok: true });
     } catch (err) {
       return res.status(500).json({ error: err.message });

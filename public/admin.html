@@ -849,9 +849,13 @@ function selectConv(log) {
     </div>`;
   }
   var isPaid = log.isPaid || false;
-  html += '<div class="conv-actions" style="align-items:center">' +
-    '<label class="conv-toggle"><input type="checkbox" ' + (isPaid ? 'checked' : '') + ' onchange="togglePaid(\'' + log.contactId + '\', this.checked)"><span class="conv-toggle-track"></span>Оплативший клиент</label>' +
-    '</div>';
+  var isEsc = log.escalated || false;
+  html += '<div class="conv-actions" style="align-items:center;gap:16px">' +
+    '<label class="conv-toggle"><input type="checkbox" ' + (isPaid ? 'checked' : '') + ' onchange="togglePaid(\'' + log.contactId + '\', this.checked)"><span class="conv-toggle-track"></span>Оплативший клиент</label>';
+  if (isEsc) {
+    html += '<button class="btn btn-sm btn-outline" onclick="returnToBot(\'' + log.contactId + '\')" style="margin-left:auto">Вернуть боту</button>';
+  }
+  html += '</div>';
   el.innerHTML = html;
   el.classList.add('mobile-show');
   setTimeout(() => { const thread = document.getElementById('conv-thread'); if (thread) thread.scrollTop = thread.scrollHeight; }, 50);
@@ -891,18 +895,38 @@ async function sendReply() {
 }
 async function togglePaid(cid, checked) {
   try {
+    // Update client list + KV flag
     await apiFetch('/settings?action=clients', {
       method: 'POST',
       body: JSON.stringify({ contactId: cid, status: checked ? 'paid' : 'active' })
     });
+    // Also update the log entry isPaid flag
+    await apiFetch('/escalations', {
+      method: 'POST',
+      body: JSON.stringify({ contactId: cid, setPaid: checked })
+    });
     showToast(checked ? 'Клиент помечен как оплативший' : 'Метка снята');
-    // Update local state
-    if (App.state.selectedConv) App.state.selectedConv.isPaid = checked;
+    if (App.state.selectedConv) {
+      App.state.selectedConv.isPaid = checked;
+      selectConv(App.state.selectedConv);
+    }
     loadConversations();
   } catch (e) { showToast(e.message, 'error'); }
 }
-async function resolveEsc(cid) {
-  try { await apiFetch('/escalations', { method: 'POST', body: JSON.stringify({ contactId: cid }) }); showToast('Обработано'); loadConversations(); closeConvDetail(); } catch (e) { showToast(e.message, 'error'); }
+async function returnToBot(cid) {
+  try {
+    await apiFetch('/escalations', {
+      method: 'POST',
+      body: JSON.stringify({ contactId: cid, returnToBot: true })
+    });
+    showToast('Диалог возвращён боту');
+    if (App.state.selectedConv) {
+      App.state.selectedConv.escalated = false;
+      App.state.selectedConv.needsReply = false;
+      selectConv(App.state.selectedConv);
+    }
+    loadConversations();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 // ===== KNOWLEDGE =====
