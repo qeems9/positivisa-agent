@@ -264,15 +264,32 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .info-banner svg { width: 18px; height: 18px; flex-shrink: 0; }
 
 /* ===== PAGE: CHAT TEST ===== */
-.test-container { max-width: 600px; }
-.test-chat { background: var(--card); border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
-.test-messages { height: 400px; overflow-y: auto; padding: 16px; background: var(--chat-bg); display: flex; flex-direction: column; }
-.test-quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; background: var(--bg); border-top: 1px solid var(--border-light); }
-.test-quick-btn { padding: 5px 12px; font-size: 12px; background: var(--accent-light); color: var(--accent); border: none; border-radius: 14px; cursor: pointer; font-family: inherit; transition: background 0.15s; }
-.test-quick-btn:hover { background: #bfdbfe; }
-.test-input-row { display: flex; gap: 8px; padding: 12px 14px; background: var(--card); }
+.test-layout { display: flex; height: 100%; gap: 0; }
+.test-chat-panel { flex: 1; display: flex; flex-direction: column; background: var(--card); border-right: 1px solid var(--border); }
+.test-chat-header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.test-chat-header h3 { font-size: 15px; font-weight: 600; }
+.test-messages { flex: 1; overflow-y: auto; padding: 16px 20px; background: var(--chat-bg); display: flex; flex-direction: column; }
+.test-input-row { display: flex; gap: 8px; padding: 12px 16px; background: var(--card); border-top: 1px solid var(--border); }
 .test-input { flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 20px; font-size: 14px; outline: none; font-family: inherit; }
 .test-input:focus { border-color: var(--accent); }
+.bubble-actions { display: flex; gap: 4px; margin-top: 4px; }
+.bubble-edit-btn { background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 2px; transition: color 0.15s; }
+.bubble-edit-btn:hover { color: var(--accent); }
+.bubble-edit-area { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 60px; outline: none; }
+.bubble-edit-actions { display: flex; gap: 6px; margin-top: 6px; }
+/* Train modal */
+.modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+.modal-backdrop.show { display: flex; }
+.modal { background: var(--card); border-radius: var(--radius-lg); max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+.modal-header { padding: 18px 20px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+.modal-body { padding: 20px; }
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+.suggestion-block { margin-bottom: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); }
+.suggestion-block h4 { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
+.suggestion-block pre { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
+.suggestion-block.prompt { border-left: 3px solid var(--accent); }
+.suggestion-block.knowledge { border-left: 3px solid var(--success); }
+.suggestion-block.explanation { border-left: 3px solid var(--warning); background: var(--warning-light); }
 
 /* ===== LOADING ===== */
 .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--text-tertiary); gap: 10px; }
@@ -451,23 +468,35 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
     </div>
 
     <!-- PAGE: Chat Test -->
-    <div class="page page-padded" id="page-chattest">
-      <div class="test-container">
-        <div class="test-chat">
-          <div class="test-messages" id="test-messages"></div>
-          <div class="test-quick">
-            <button class="test-quick-btn" onclick="sendQuick('Хочу визу в Италию')">Виза в Италию</button>
-            <button class="test-quick-btn" onclick="sendQuick('Был отказ ранее')">Был отказ</button>
-            <button class="test-quick-btn" onclick="sendQuick('Сколько стоит шенген?')">Цена шенгена</button>
-            <button class="test-quick-btn" onclick="sendQuick('Куда переводить?')">Куда оплатить</button>
-            <button class="test-quick-btn" onclick="sendQuick('Здравствуйте')">Приветствие</button>
-          </div>
-          <div class="test-input-row">
-            <input class="test-input" id="test-input" placeholder="Напишите сообщение..." onkeydown="if(event.key==='Enter')sendChat()">
-            <button class="btn btn-primary" onclick="sendChat()">Отправить</button>
-            <button class="btn-icon" onclick="resetChat()" title="Сбросить">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+    <div class="page" id="page-chattest">
+      <div class="test-layout">
+        <div class="test-chat-panel">
+          <div class="test-chat-header">
+            <h3>Тестовый диалог</h3>
+            <button class="btn btn-sm btn-outline" onclick="resetChat()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+              Сбросить
             </button>
+          </div>
+          <div class="test-messages" id="test-messages"></div>
+          <div class="test-input-row">
+            <input class="test-input" id="test-input" placeholder="Напишите как клиент..." onkeydown="if(event.key==='Enter')sendChat()">
+            <button class="conv-reply-send" onclick="sendChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Train modal -->
+      <div class="modal-backdrop" id="train-modal">
+        <div class="modal">
+          <div class="modal-header">
+            AI-анализ корректировки
+            <button class="btn-icon" onclick="closeTrainModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+          <div class="modal-body" id="train-modal-body"><div class="loading"><div class="spinner"></div> Анализирую...</div></div>
+          <div class="modal-footer" id="train-modal-footer" style="display:none">
+            <button class="btn btn-outline" onclick="closeTrainModal()">Отклонить</button>
+            <button class="btn btn-primary" id="train-apply-btn" onclick="applyTrainSuggestions()">Применить изменения</button>
           </div>
         </div>
       </div>
@@ -852,12 +881,16 @@ async function savePrompt() {
 }
 
 // ===== CHAT TEST =====
+let testMsgIndex = 0;
+let trainSuggestions = null;
+
 async function sendChat() {
   const input = document.getElementById('test-input');
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
   appendTestMsg('user', text);
+  const userMsg = text;
   try {
     const res = await apiFetch('/test', { method: 'POST', body: JSON.stringify({ message: text, history: App.state.chatHistory }) });
     const data = await res.json();
@@ -865,22 +898,150 @@ async function sendChat() {
     const reply = data.reply || '(пустой ответ)';
     App.state.chatHistory.push({ role: 'user', content: text });
     App.state.chatHistory.push({ role: 'assistant', content: reply });
-    appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed);
+    appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed, userMsg);
   } catch (err) { appendTestMsg('bot', 'Ошибка: ' + (err.message||'')); }
 }
-function sendQuick(t) { document.getElementById('test-input').value = t; sendChat(); }
-function resetChat() { App.state.chatHistory = []; document.getElementById('test-messages').innerHTML = ''; }
-function appendTestMsg(role, text, esc, tokens) {
+function resetChat() { App.state.chatHistory = []; testMsgIndex = 0; document.getElementById('test-messages').innerHTML = ''; }
+
+function appendTestMsg(role, text, escalate, tokens, userMsg) {
+  const idx = testMsgIndex++;
   const div = document.createElement('div');
   div.className = 'bubble ' + (role === 'user' ? 'bubble-user' : 'bubble-bot');
+  div.id = 'test-bubble-' + idx;
   let html = '';
-  if (role !== 'user') html += '<div class="bubble-label bot">AI Bot</div>';
-  html += String(text||'').replace(/\n/g, '<br>');
-  if (esc) html += '<br><span style="color:var(--danger);font-weight:600;font-size:12px">ESCALATE</span>';
-  if (tokens) html += `<div class="bubble-meta">${tokens} tokens</div>`;
+  if (role !== 'user') {
+    html += '<div class="bubble-label bot">AI Bot</div>';
+    html += `<div id="test-text-${idx}">${String(text||'').replace(/\n/g, '<br>')}</div>`;
+    if (escalate) html += '<span style="color:var(--danger);font-weight:600;font-size:12px">ESCALATE</span>';
+    if (tokens) html += `<div class="bubble-meta">${tokens} tokens</div>`;
+    html += `<div class="bubble-actions"><button class="bubble-edit-btn" onclick="startEdit(${idx},'${esc(text).replace(/'/g,"\\'")}','${esc(userMsg||'').replace(/'/g,"\\'")}')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Исправить ответ
+    </button></div>`;
+  } else {
+    html = String(text||'').replace(/\n/g, '<br>');
+  }
   div.innerHTML = html;
   const c = document.getElementById('test-messages');
   c.appendChild(div); c.scrollTop = c.scrollHeight;
+}
+
+function startEdit(idx, originalText, userMsg) {
+  const bubble = document.getElementById('test-bubble-' + idx);
+  const textEl = document.getElementById('test-text-' + idx);
+  if (!textEl) return;
+  // Store original text for train
+  bubble.dataset.original = originalText;
+  bubble.dataset.userMsg = userMsg;
+  // Replace text with textarea
+  const currentText = originalText.replace(/<br>/g, '\n');
+  textEl.innerHTML = `<textarea class="bubble-edit-area" id="test-edit-${idx}">${esc(currentText)}</textarea>
+    <div class="bubble-edit-actions">
+      <button class="btn btn-sm btn-primary" onclick="submitEdit(${idx})">Применить корректировку</button>
+      <button class="btn btn-sm btn-outline" onclick="cancelEdit(${idx},'${esc(originalText).replace(/'/g,"\\'")}')">Отмена</button>
+    </div>`;
+  document.getElementById('test-edit-' + idx).focus();
+}
+
+function cancelEdit(idx, originalText) {
+  const textEl = document.getElementById('test-text-' + idx);
+  if (textEl) textEl.innerHTML = originalText.replace(/\n/g, '<br>');
+}
+
+async function submitEdit(idx) {
+  const textarea = document.getElementById('test-edit-' + idx);
+  const bubble = document.getElementById('test-bubble-' + idx);
+  if (!textarea || !bubble) return;
+  const correctedReply = textarea.value.trim();
+  const originalReply = bubble.dataset.original || '';
+  const userMessage = bubble.dataset.userMsg || '';
+
+  if (correctedReply === originalReply) { cancelEdit(idx, originalReply); return; }
+
+  // Show modal with loading
+  const modal = document.getElementById('train-modal');
+  const body = document.getElementById('train-modal-body');
+  const footer = document.getElementById('train-modal-footer');
+  modal.classList.add('show');
+  body.innerHTML = '<div class="loading"><div class="spinner"></div> AI анализирует разницу...</div>';
+  footer.style.display = 'none';
+
+  try {
+    const res = await apiFetch('/train', {
+      method: 'POST',
+      body: JSON.stringify({
+        originalReply,
+        correctedReply,
+        history: App.state.chatHistory.slice(0, -1), // all except last assistant
+        userMessage
+      })
+    });
+    trainSuggestions = await res.json();
+
+    if (trainSuggestions.error) {
+      body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(trainSuggestions.error)}</p>`;
+      return;
+    }
+
+    let html = '';
+    if (trainSuggestions.explanation) {
+      html += `<div class="suggestion-block explanation"><h4>Анализ</h4><pre>${esc(trainSuggestions.explanation)}</pre></div>`;
+    }
+    if (trainSuggestions.promptSuggestion) {
+      html += `<div class="suggestion-block prompt"><h4>Добавить в промпт</h4><pre>${esc(trainSuggestions.promptSuggestion)}</pre></div>`;
+    }
+    if (trainSuggestions.knowledgeSuggestion) {
+      html += `<div class="suggestion-block knowledge"><h4>Изменить в базе знаний</h4><pre>${esc(trainSuggestions.knowledgeSuggestion)}</pre></div>`;
+    }
+    if (!trainSuggestions.promptSuggestion && !trainSuggestions.knowledgeSuggestion) {
+      html += '<p class="text-secondary">AI не нашёл что менять. Возможно разница слишком незначительная.</p>';
+    }
+    body.innerHTML = html;
+    if (trainSuggestions.promptSuggestion || trainSuggestions.knowledgeSuggestion) {
+      footer.style.display = 'flex';
+    }
+  } catch (err) {
+    body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(err.message)}</p>`;
+  }
+
+  // Update the bubble with corrected text
+  const textEl = document.getElementById('test-text-' + idx);
+  if (textEl) textEl.innerHTML = correctedReply.replace(/\n/g, '<br>');
+}
+
+async function applyTrainSuggestions() {
+  if (!trainSuggestions) return;
+  const btn = document.getElementById('train-apply-btn');
+  btn.textContent = 'Применяю...'; btn.disabled = true;
+
+  try {
+    // Apply prompt changes
+    if (trainSuggestions.promptSuggestion) {
+      const res = await apiFetch('/prompt');
+      const data = await res.json();
+      const newPrompt = data.prompt + '\n\n' + trainSuggestions.promptSuggestion;
+      await apiFetch('/prompt', { method: 'POST', body: JSON.stringify({ prompt: newPrompt }) });
+    }
+
+    // Note: knowledge changes are described in text, not structured — show toast
+    if (trainSuggestions.knowledgeSuggestion) {
+      showToast('Предложение по базе знаний сохранено — примените вручную во вкладке База знаний', 'success');
+    }
+
+    if (trainSuggestions.promptSuggestion) {
+      showToast('Промпт обновлён');
+    }
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+
+  btn.textContent = 'Применить изменения'; btn.disabled = false;
+  closeTrainModal();
+}
+
+function closeTrainModal() {
+  document.getElementById('train-modal').classList.remove('show');
+  trainSuggestions = null;
 }
 
 // ===== INIT =====

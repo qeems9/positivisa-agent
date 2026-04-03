@@ -21,72 +21,47 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-
-
-    // --- Check if bot is enabled ---
-    try {
-      const enabled = await kv.get("bot_enabled");
-      if (enabled === false) {
-        return res.status(200).json({ ok: true, skipped: "bot_disabled" });
-      }
-    } catch {
-      // KV error — bot continues working by default
-    }
-
     // --- Wazzup webhook: messages array ---
     const messages = body.messages;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      // Status updates or other webhook types — acknowledge
       return res.status(200).json({ ok: true, skipped: "no_messages" });
     }
 
+    // Check if bot is enabled (messages are always saved regardless)
+    let botEnabled = true;
+    try {
+      const enabled = await kv.get("bot_enabled");
+      if (enabled === false) botEnabled = false;
+    } catch {}
+
     // Process each incoming message
     for (const msg of messages) {
-      await processMessage(msg);
+      await processMessage(msg, botEnabled);
     }
 
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("Webhook handler error:", err);
-    // Always return 200 to avoid Wazzup retries
     return res.status(200).json({ ok: false, error: err.message });
   }
 };
 
-async function processMessage(msg) {
-  // --- Parse Wazzup message fields ---
+async function processMessage(msg, botEnabled) {
   const messageId = msg.messageId || "";
   const channelId = msg.channelId || "";
-  const chatId = msg.chatId || "";          // phone number for WhatsApp
-  const chatType = msg.chatType || "";       // "whatsapp"
-  const messageType = msg.type || "text";    // "text", "image", "voice", "audio", "video", "document"
-  const isEcho = msg.isEcho || false;        // true = sent by operator/bot
+  const chatId = msg.chatId || "";
+  const chatType = msg.chatType || "";
+  const messageType = msg.type || "text";
+  const isEcho = msg.isEcho || false;
   const text = (msg.text || "").trim();
-  const contentUrl = msg.content || "";      // media URL for non-text messages
-  const authorType = msg.authorType || "";   // "client", "manager", "bot"
-
-  // Use chatId as contact identifier (phone number)
+  const contentUrl = msg.content || "";
+  const authorType = msg.authorType || "";
   const contactId = chatId;
 
-  // Skip if not WhatsApp
-  if (chatType && chatType !== "whatsapp") {
-    return;
-  }
-
-  // Skip outgoing messages (sent by us or manager)
-  if (isEcho || authorType === "manager" || authorType === "bot") {
-    return;
-  }
-
-  // Skip empty text messages
-  if (!text && messageType === "text") {
-    return;
-  }
-
-  // Skip if no contact
-  if (!contactId) {
-    return;
-  }
+  if (chatType && chatType !== "whatsapp") return;
+  if (isEcho || authorType === "manager" || authorType === "bot") return;
+  if (!text && messageType === "text") return;
+  if (!contactId) return;
 
   // --- Dedup ---
   if (messageId) {
@@ -95,92 +70,97 @@ async function processMessage(msg) {
       const kvKey = `dedup:${messageId}`;
       const exists = await kv.get(kvKey);
       if (exists) return;
-      await kv.set(kvKey, 1, { ex: 3600 }); // 1h TTL
-    } catch {
-      // KV not available, in-memory only
-    }
+      await kv.set(kvKey, 1, { ex: 3600 });
+    } catch {}
     processedIds.add(messageId);
   }
 
-  // --- Skip paid/existing clients (let manager handle) ---
+  // --- Skip paid/existing clients ---
   try {
     const clientStatus = await kv.get(`client:${contactId}`);
-    if (clientStatus === "paid") {
-      return; // Don't respond — manager handles paid clients
-    }
-  } catch {
-    // KV error — continue
-  }
+    if (clientStatus === "paid") return;
+  } catch {}
 
   // --- Handle message by type ---
   let messageText = text;
 
-  // Voice / audio messages — transcribe
   if ((messageType === "voice" || messageType === "audio") && contentUrl) {
-    const transcribed = await transcribeVoice(contentUrl);
-    if (!transcribed) {
-      await sendMessage(channelId, chatId, "Не смог распознать голосовое, напишите текстом пожалуйста");
-      return;
+    if (!botEnabled) {
+      // Save raw info, don't transcribe when bot is off
+      messageText = "[Голосовое сообщение]";
+    } else {
+      const transcribed = await transcribeVoice(contentUrl);
+      if (!transcribed) {
+        await sendMessage(channelId, chatId, "Не смог распознать голосовое, напишите текстом пожалуйста");
+        return;
+      }
+      messageText = `[Голосовое] ${transcribed}`;
     }
-    messageText = `[Голосовое] ${transcribed}`;
   }
 
-  // Non-text media without text (image, video, document, sticker, location)
   if (!messageText && messageType !== "text") {
-    await sendMessage(channelId, chatId, "Получил! Напишите пожалуйста текстом, чем могу помочь?");
+    if (botEnabled) {
+      await sendMessage(channelId, chatId, "Получил! Напишите пожалуйста текстом, чем могу помочь?");
+    }
     return;
   }
 
-  // Final check: no text to process
   if (!messageText) return;
 
-  // --- Main AI flow ---
+  // --- Always save incoming message ---
+  await addMessage(contactId, "user", messageText);
 
+  // --- Log to KV (always, even when bot is off) ---
+  try {
+    const updatedHistory = await getHistory(contactId);
+    const logKey = `log:${contactId}`;
+    await kv.set(logKey, {
+      contactId,
+      phone: chatId,
+      channelId,
+      messages: updatedHistory,
+      escalated: false,
+      updatedAt: new Date().toISOString(),
+    }, { ex: 30 * 86400 });
+    await kv.zadd("log:index", { score: Date.now(), member: logKey });
+  } catch (err) {
+    console.error("Log save error:", err.message);
+  }
+
+  // --- If bot is disabled, stop here (message is saved but no reply) ---
+  if (!botEnabled) return;
+
+  // --- Main AI flow ---
   const history = await getHistory(contactId);
 
-  // Call Claude with timeout
   let reply;
   try {
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Claude timeout")), 10000)
+      setTimeout(() => reject(new Error("timeout")), 10000)
     );
-    reply = await Promise.race([
-      getReply(contactId, history, messageText),
-      timeoutPromise,
-    ]);
+    reply = await Promise.race([getReply(contactId, history, messageText), timeoutPromise]);
   } catch (err) {
-    console.error("Claude error/timeout:", err.message);
+    console.error("AI error/timeout:", err.message);
     await sendMessage(channelId, chatId, "Секунду, уточняю информацию...");
     return;
   }
 
-  // Save to conversation history
-  await addMessage(contactId, "user", messageText);
+  // Save bot reply to history
   await addMessage(contactId, "assistant", reply.text);
 
-  // Log to KV
+  // Update log with reply
   try {
-    const updatedHistory = await getHistory(contactId);
+    const fullHistory = await getHistory(contactId);
     const logKey = `log:${contactId}`;
-    await kv.set(
-      logKey,
-      {
-        contactId,
-        phone: chatId,
-        channelId,
-        messages: updatedHistory,
-        escalated: reply.shouldEscalate,
-        updatedAt: new Date().toISOString(),
-      },
-      { ex: 30 * 86400 } // 30 days TTL
-    );
-    await kv.zadd("log:index", {
-      score: Date.now(),
-      member: logKey,
-    });
-  } catch (err) {
-    console.error("Log save error:", err.message);
-  }
+    await kv.set(logKey, {
+      contactId,
+      phone: chatId,
+      channelId,
+      messages: fullHistory,
+      escalated: reply.shouldEscalate,
+      updatedAt: new Date().toISOString(),
+    }, { ex: 30 * 86400 });
+  } catch {}
 
   // Send reply or escalate
   if (reply.shouldEscalate) {
