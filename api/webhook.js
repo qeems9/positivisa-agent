@@ -64,7 +64,9 @@ async function processMessage(msg, botEnabled) {
   // Outgoing messages (from manager or bot echo) — save to log but don't process
   if (isEcho || authorType === "manager" || authorType === "bot") {
     if (text) {
-      await addMessage(contactId, "assistant", text);
+      // Distinguish: manager wrote manually vs bot auto-reply
+      var msgRole = (authorType === "manager") ? "manager" : "assistant";
+      await addMessage(contactId, msgRole, text);
       try {
         const updatedHistory = await getHistory(contactId);
         const logKey = `log:${contactId}`;
