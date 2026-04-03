@@ -91,7 +91,8 @@ ${history.map(m => \`\${m.role === 'user' ? 'Клиент' : 'Бот'}: \${m.con
 
     // Auto-apply prompt if updatedPrompt is present
     if (result.updatedPrompt) {
-      await kv.set("system_prompt", result.updatedPrompt);
+      // Wrap in object to avoid Upstash pattern-matching issues with raw strings
+      await kv.set("system_prompt_v2", { text: result.updatedPrompt });
       result.applied = true;
     }
 

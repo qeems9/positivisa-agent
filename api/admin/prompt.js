@@ -7,6 +7,10 @@ module.exports = async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
+      // Try v2 format first
+      const v2 = await kv.get("system_prompt_v2");
+      if (v2 && v2.text) return res.status(200).json({ prompt: v2.text });
+      // Fallback to v1
       const stored = await kv.get("system_prompt");
       return res.status(200).json({ prompt: stored || DEFAULT_SYSTEM_PROMPT });
     } catch {
@@ -20,7 +24,8 @@ module.exports = async function handler(req, res) {
       if (!prompt || typeof prompt !== "string") {
         return res.status(400).json({ error: "Prompt must be a non-empty string" });
       }
-      await kv.set("system_prompt", prompt);
+      // Save as v2 (wrapped in object to avoid Upstash pattern issues)
+      await kv.set("system_prompt_v2", { text: prompt });
       return res.status(200).json({ ok: true });
     } catch (err) {
       return res.status(500).json({ error: err.message });
