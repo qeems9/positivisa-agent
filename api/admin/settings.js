@@ -62,8 +62,13 @@ module.exports = async function handler(req, res) {
             clients.push(entry);
           }
           // Mark in KV for webhook check
-          if (status === "active") { await kv.del("client:" + contactId); }
-          else { await kv.set("client:" + contactId, "paid", { ex: 365 * 86400 }); }
+          if (status === "active") {
+            await kv.del("client:" + contactId);
+            // Remove from list too
+            clients = clients.filter(function(c) { return c.contactId !== contactId; });
+          } else {
+            await kv.set("client:" + contactId, "paid", { ex: 365 * 86400 });
+          }
         }
 
         await kv.set("clients_list", clients);

@@ -72,13 +72,14 @@ async function processMessage(msg, botEnabled) {
     if (text) {
       var role = (authorType === "manager") ? "manager" : "assistant";
       await addMessage(contactId, role, text);
-      // Clear needsReply when manager responds
+      // Clear needsReply AND escalated when manager responds
       if (authorType === "manager") {
         try {
           var logKey = "log:" + contactId;
           var log = await kv.get(logKey);
           if (log) {
             log.needsReply = false;
+            log.escalated = false;
             log.messages = await getHistory(contactId);
             log.updatedAt = new Date().toISOString();
             await kv.set(logKey, log, { ex: 30 * 86400 });
@@ -144,6 +145,17 @@ async function processMessage(msg, botEnabled) {
     await saveLog(contactId, chatId, channelId, { needsReply: true });
     return;
   }
+
+  // --- Check if already escalated (manager handles) ---
+  try {
+    var logKey = "log:" + contactId;
+    var existingLog = await kv.get(logKey);
+    if (existingLog && existingLog.escalated) {
+      // Bot already handed off to manager — don't respond, mark needsReply
+      await saveLog(contactId, chatId, channelId, { escalated: true, needsReply: true });
+      return;
+    }
+  } catch {}
 
   // --- AI flow ---
   var history = await getHistory(contactId);
