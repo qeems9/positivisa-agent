@@ -398,8 +398,16 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
     <!-- PAGE: Dashboard -->
     <div class="page active page-padded" id="page-dashboard">
       <div class="stats-grid" id="dashboard-stats"></div>
-      <div class="section-title">Последние эскалации</div>
-      <div class="card"><div class="card-body" id="dashboard-escalations"><div class="loading"><div class="spinner"></div> Загрузка...</div></div></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+        <div style="flex:1;min-width:280px">
+          <div class="section-title">Последние эскалации</div>
+          <div class="card"><div class="card-body" id="dashboard-escalations"><div class="loading"><div class="spinner"></div> Загрузка...</div></div></div>
+        </div>
+        <div style="min-width:220px">
+          <div class="section-title">Курсы НБ РК</div>
+          <div class="card"><div class="card-body" id="dashboard-rates"><div class="loading"><div class="spinner"></div></div></div></div>
+        </div>
+      </div>
     </div>
 
     <!-- PAGE: Conversations -->
@@ -653,6 +661,23 @@ async function loadDashboard() {
       document.getElementById('dashboard-escalations').innerHTML = html;
     }
   } catch (err) { document.getElementById('dashboard-escalations').innerHTML = 'Ошибка: ' + err.message; }
+
+  // Load rates
+  try {
+    const ratesRes = await apiFetch('/rates');
+    const rates = await ratesRes.json();
+    if (rates.USD) {
+      document.getElementById('dashboard-rates').innerHTML =
+        '<div style="font-size:13px;line-height:2">' +
+        '<div style="display:flex;justify-content:space-between"><span>USD</span><strong>' + rates.USD + ' тг</strong></div>' +
+        '<div style="display:flex;justify-content:space-between"><span>EUR</span><strong>' + rates.EUR + ' тг</strong></div>' +
+        '<div style="display:flex;justify-content:space-between"><span>GBP</span><strong>' + rates.GBP + ' тг</strong></div>' +
+        '<div style="display:flex;justify-content:space-between"><span>CAD</span><strong>' + rates.CAD + ' тг</strong></div>' +
+        '<div style="display:flex;justify-content:space-between"><span>AUD</span><strong>' + rates.AUD + ' тг</strong></div>' +
+        '<div style="margin-top:8px;font-size:11px;color:var(--text-tertiary)">НБ РК на ' + (rates.date || 'сегодня') + '</div>' +
+        '</div>';
+    }
+  } catch {}
 }
 
 // ===== CONVERSATIONS =====
