@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PositiVisa Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+
+    /* Header */
+    .header { background: #1a73e8; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .subtitle { opacity: 0.8; font-size: 13px; }
+
+    /* Tabs */
+    .tabs { display: flex; background: #fff; border-bottom: 2px solid #e0e0e0; padding: 0 16px; overflow-x: auto; }
+    .tab { padding: 12px 20px; cursor: pointer; font-size: 14px; font-weight: 500; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; white-space: nowrap; position: relative; }
+    .tab:hover { color: #1a73e8; }
+    .tab.active { color: #1a73e8; border-bottom-color: #1a73e8; }
+    .tab .badge { background: #e53935; color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin-left: 6px; }
+
+    /* Content */
+    .content { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Chat test */
+    .chat-container { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .chat-messages { height: 400px; overflow-y: auto; padding: 16px; background: #e5ddd5; }
+    .chat-msg { max-width: 75%; margin-bottom: 8px; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+    .chat-msg.user { background: #dcf8c6; margin-left: auto; border-bottom-right-radius: 2px; }
+    .chat-msg.assistant { background: #fff; border-bottom-left-radius: 2px; }
+    .chat-msg .meta { font-size: 11px; color: #999; margin-top: 4px; }
+    .chat-msg .escalate-flag { color: #e53935; font-weight: 600; font-size: 12px; }
+    .chat-input-row { display: flex; gap: 8px; padding: 12px; background: #f0f0f0; }
+    .chat-input-row input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 20px; font-size: 14px; outline: none; }
+    .chat-input-row input:focus { border-color: #1a73e8; }
+    .chat-quick-btns { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; background: #f9f9f9; }
+    .quick-btn { padding: 6px 12px; font-size: 12px; background: #e8f0fe; color: #1a73e8; border: none; border-radius: 16px; cursor: pointer; }
+    .quick-btn:hover { background: #d2e3fc; }
+
+    /* Buttons */
+    .btn { padding: 8px 18px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #1a73e8; color: #fff; }
+    .btn-primary:hover { background: #1557b0; }
+    .btn-danger { background: #e53935; color: #fff; }
+    .btn-danger:hover { background: #c62828; }
+    .btn-outline { background: transparent; border: 1px solid #ddd; color: #666; }
+    .btn-outline:hover { background: #f5f5f5; }
+    .btn-sm { padding: 4px 12px; font-size: 12px; }
+
+    /* Cards */
+    .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .card h3 { margin-bottom: 12px; font-size: 16px; }
+
+    /* Form elements */
+    textarea, input[type="text"], select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; outline: none; }
+    textarea:focus, input[type="text"]:focus { border-color: #1a73e8; }
+    textarea { resize: vertical; }
+    label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #555; }
+    .field { margin-bottom: 12px; }
+
+    /* Knowledge cards */
+    .direction-cards { display: grid; gap: 12px; }
+    .direction-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; cursor: pointer; transition: box-shadow 0.2s; }
+    .direction-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .direction-card h4 { font-size: 15px; margin-bottom: 6px; }
+    .direction-card .info { font-size: 13px; color: #666; }
+    .direction-edit { display: none; }
+    .direction-edit.open { display: block; }
+
+    /* FAQ table */
+    .faq-table { width: 100%; border-collapse: collapse; }
+    .faq-table th, .faq-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+    .faq-table th { font-weight: 500; color: #666; font-size: 13px; }
+    .faq-table input { border: none; background: transparent; font-size: 14px; width: 100%; outline: none; padding: 4px 0; }
+    .faq-table input:focus { border-bottom: 1px solid #1a73e8; }
+
+    /* Prompt */
+    .prompt-area { min-height: 400px; font-family: monospace; font-size: 13px; line-height: 1.5; }
+    .char-count { font-size: 12px; color: #999; margin-top: 4px; }
+    .warning { background: #fff3e0; border: 1px solid #ffcc80; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #e65100; margin-bottom: 12px; }
+
+    /* Logs table */
+    .logs-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .logs-table th { background: #f9f9f9; padding: 10px 12px; font-size: 13px; font-weight: 500; color: #666; text-align: left; }
+    .logs-table td { padding: 10px 12px; font-size: 14px; border-top: 1px solid #f0f0f0; }
+    .logs-table tr { cursor: pointer; }
+    .logs-table tr:hover td { background: #f5f8ff; }
+    .status-ai { color: #1a73e8; font-weight: 500; }
+    .status-escalated { color: #e53935; font-weight: 500; }
+
+    /* Dialog detail */
+    .dialog-detail { background: #e5ddd5; border-radius: 8px; padding: 16px; margin-top: 8px; max-height: 300px; overflow-y: auto; }
+    .dialog-detail .chat-msg { max-width: 85%; }
+
+    /* Sub-tabs */
+    .sub-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+    .sub-tab { padding: 6px 14px; font-size: 13px; border-radius: 20px; cursor: pointer; background: #e8e8e8; color: #666; border: none; }
+    .sub-tab.active { background: #1a73e8; color: #fff; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transform: translateY(10px); transition: all 0.3s; z-index: 1000; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { background: #e53935; }
+    .toast.success { background: #43a047; }
+
+    /* Loading */
+    .loading { text-align: center; padding: 40px; color: #999; }
+    .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #ddd; border-top-color: #1a73e8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .row { display: flex; gap: 12px; align-items: flex-start; }
+    .flex-1 { flex: 1; }
+    .mt-8 { margin-top: 8px; }
+    .mt-16 { margin-top: 16px; }
+    .mb-8 { margin-bottom: 8px; }
+    .text-right { text-align: right; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>PositiVisa Admin</h1>
+    <div class="subtitle">AI-агент управление</div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="chat">Чат-тест</div>
+  <div class="tab" data-tab="knowledge">База знаний</div>
+  <div class="tab" data-tab="prompt">Промпт</div>
+  <div class="tab" data-tab="logs">Диалоги <span class="badge" id="escalation-badge" style="display:none">0</span></div>
+</div>
+
+<!-- TAB: Chat Test -->
+<div class="content">
+<div class="panel active" id="panel-chat">
+  <div class="chat-container">
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-quick-btns">
+      <button class="quick-btn" onclick="sendQuick('Хочу визу в Италию')">Виза в Италию</button>
+      <button class="quick-btn" onclick="sendQuick('Был отказ ранее')">Был отказ</button>
+      <button class="quick-btn" onclick="sendQuick('Сколько стоит шенген?')">Цена шенгена</button>
+      <button class="quick-btn" onclick="sendQuick('Куда переводить?')">Куда оплатить</button>
+      <button class="quick-btn" onclick="sendQuick('Здравствуйте')">Приветствие</button>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="chat-input" placeholder="Напишите сообщение..." onkeydown="if(event.key==='Enter')sendChat()">
+      <button class="btn btn-primary" onclick="sendChat()">Отправить</button>
+      <button class="btn btn-outline" onclick="resetChat()">Сброс</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Knowledge Base -->
+<div class="panel" id="panel-knowledge">
+  <div id="knowledge-loading" class="loading"><div class="spinner"></div><br>Загрузка...</div>
+  <div id="knowledge-content" style="display:none">
+    <h3 class="mb-8">Направления</h3>
+    <div class="direction-cards" id="directions-list"></div>
+    <button class="btn btn-outline mt-16" onclick="addDirection()">+ Добавить направление</button>
+
+    <h3 class="mt-16 mb-8">FAQ</h3>
+    <table class="faq-table" id="faq-table">
+      <thead><tr><th style="width:35%">Вопрос</th><th>Ответ</th><th style="width:40px"></th></tr></thead>
+      <tbody id="faq-body"></tbody>
+    </table>
+    <button class="btn btn-outline mt-8" onclick="addFaq()">+ Добавить вопрос</button>
+
+    <h3 class="mt-16 mb-8">Контакты</h3>
+    <div class="card">
+      <div class="row">
+        <div class="flex-1 field"><label>Имя менеджера</label><input type="text" id="contact-name"></div>
+        <div class="flex-1 field"><label>Рабочие часы</label><input type="text" id="contact-hours"></div>
+      </div>
+      <div class="field"><label>Сайт</label><input type="text" id="contact-website"></div>
+    </div>
+
+    <div class="text-right mt-16">
+      <button class="btn btn-primary" onclick="saveKnowledge()">Сохранить базу знаний</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Prompt -->
+<div class="panel" id="panel-prompt">
+  <div class="warning">Изменения применяются мгновенно ко всем новым диалогам</div>
+  <div id="prompt-loading" class="loading"><div class="spinner"></div><br>Загрузка...</div>
+  <div id="prompt-content" style="display:none">
+    <textarea class="prompt-area" id="prompt-textarea"></textarea>
+    <div class="char-count" id="prompt-chars">0 символов</div>
+    <div class="text-right mt-8">
+      <button class="btn btn-primary" onclick="savePrompt()">Сохранить промпт</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: Logs -->
+<div class="panel" id="panel-logs">
+  <div class="sub-tabs">
+    <button class="sub-tab active" onclick="switchSubTab('all', this)">Все диалоги</button>
+    <button class="sub-tab" onclick="switchSubTab('escalated', this)">Требуют ответа</button>
+  </div>
+
+  <div id="logs-all">
+    <div id="logs-loading" class="loading"><div class="spinner"></div><br>Загрузка...</div>
+    <table class="logs-table" id="logs-table" style="display:none">
+      <thead><tr><th>Время</th><th>Телефон</th><th>Сообщений</th><th>Статус</th></tr></thead>
+      <tbody id="logs-body"></tbody>
+    </table>
+  </div>
+
+  <div id="logs-escalated" style="display:none">
+    <div id="esc-loading" class="loading"><div class="spinner"></div><br>Загрузка...</div>
+    <table class="logs-table" id="esc-table" style="display:none">
+      <thead><tr><th>Время</th><th>Телефон</th><th>Сообщений</th><th>Действие</th></tr></thead>
+      <tbody id="esc-body"></tbody>
+    </table>
+    <div id="esc-empty" style="display:none" class="card"><p style="text-align:center;color:#999">Нет необработанных эскалаций</p></div>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/api/admin';
+let chatHistory = [];
+let knowledgeData = null;
+let expandedLog = null;
+
+// --- Auth header ---
+function authHeaders() {
+  return { 'Authorization': 'Basic ' + btoa('admin:' + (sessionStorage.getItem('adminPass') || '')) };
+}
+
+// On first load, prompt for password if not cached
+(function initAuth() {
+  if (!sessionStorage.getItem('adminPass')) {
+    // Browser's Basic Auth dialog will handle it via 401 from server
+    // But for fetch calls we need to store it
+    const pass = prompt('Пароль администратора:');
+    if (pass) sessionStorage.setItem('adminPass', pass);
+  }
+})();
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options.headers }
+  });
+  if (res.status === 401) {
+    sessionStorage.removeItem('adminPass');
+    const pass = prompt('Неверный пароль. Попробуйте снова:');
+    if (pass) {
+      sessionStorage.setItem('adminPass', pass);
+      return apiFetch(path, options);
+    }
+    throw new Error('Not authenticated');
+  }
+  return res;
+}
+
+// --- Tabs ---
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+
+    if (tab.dataset.tab === 'knowledge' && !knowledgeData) loadKnowledge();
+    if (tab.dataset.tab === 'prompt') loadPrompt();
+    if (tab.dataset.tab === 'logs') loadLogs();
+  });
+});
+
+// --- Toast ---
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + type + ' show';
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// --- Chat Test ---
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendMsg('user', text);
+
+  try {
+    const res = await apiFetch('/test', {
+      method: 'POST',
+      body: JSON.stringify({ message: text, history: chatHistory })
+    });
+    const data = await res.json();
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'assistant', content: data.reply });
+    appendMsg('assistant', data.reply, data.shouldEscalate, data.tokensUsed);
+  } catch (err) {
+    appendMsg('assistant', 'Ошибка: ' + err.message);
+  }
+}
+
+function sendQuick(text) {
+  document.getElementById('chat-input').value = text;
+  sendChat();
+}
+
+function resetChat() {
+  chatHistory = [];
+  document.getElementById('chat-messages').innerHTML = '';
+}
+
+function appendMsg(role, text, escalate, tokens) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  let html = text.replace(/\n/g, '<br>');
+  if (escalate) html += '<br><span class="escalate-flag">ESCALATE</span>';
+  if (tokens) html += '<br><span class="meta">' + tokens + ' tokens</span>';
+  div.innerHTML = html;
+  const container = document.getElementById('chat-messages');
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+// --- Knowledge ---
+async function loadKnowledge() {
+  try {
+    const res = await apiFetch('/knowledge');
+    knowledgeData = await res.json();
+    renderKnowledge();
+    document.getElementById('knowledge-loading').style.display = 'none';
+    document.getElementById('knowledge-content').style.display = 'block';
+  } catch (err) {
+    showToast('Ошибка загрузки: ' + err.message, 'error');
+  }
+}
+
+function renderKnowledge() {
+  const list = document.getElementById('directions-list');
+  list.innerHTML = '';
+  knowledgeData.directions.forEach((dir, i) => {
+    const card = document.createElement('div');
+    card.innerHTML = `
+      <div class="direction-card" onclick="toggleDirection(${i})">
+        <h4>${dir.country}</h4>
+        <div class="info">${dir.visaTypes.join(', ')} | ${dir.price} | ${dir.processingTime}</div>
+      </div>
+      <div class="direction-edit card" id="dir-edit-${i}">
+        <div class="field"><label>Страна</label><input type="text" value="${esc(dir.country)}" onchange="knowledgeData.directions[${i}].country=this.value"></div>
+        <div class="field"><label>Типы виз (через запятую)</label><input type="text" value="${esc(dir.visaTypes.join(', '))}" onchange="knowledgeData.directions[${i}].visaTypes=this.value.split(',').map(s=>s.trim())"></div>
+        <div class="field"><label>Стоимость</label><input type="text" value="${esc(dir.price)}" onchange="knowledgeData.directions[${i}].price=this.value"></div>
+        <div class="field"><label>Сроки</label><input type="text" value="${esc(dir.processingTime)}" onchange="knowledgeData.directions[${i}].processingTime=this.value"></div>
+        <div class="field"><label>Документы (каждый с новой строки)</label><textarea rows="5" onchange="knowledgeData.directions[${i}].documents=this.value.split('\\n').filter(s=>s.trim())">${dir.documents.join('\n')}</textarea></div>
+        <div class="field"><label>Примечание</label><input type="text" value="${esc(dir.notes || '')}" onchange="knowledgeData.directions[${i}].notes=this.value"></div>
+        ${dir.popularCountries !== undefined ? `<div class="field"><label>Популярные страны</label><input type="text" value="${esc(dir.popularCountries || '')}" onchange="knowledgeData.directions[${i}].popularCountries=this.value"></div>` : ''}
+        <button class="btn btn-danger btn-sm mt-8" onclick="removeDirection(${i})">Удалить направление</button>
+      </div>`;
+    list.appendChild(card);
+  });
+
+  // FAQ
+  const tbody = document.getElementById('faq-body');
+  tbody.innerHTML = '';
+  knowledgeData.faq.forEach((item, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" value="${esc(item.q)}" onchange="knowledgeData.faq[${i}].q=this.value"></td>
+      <td><input type="text" value="${esc(item.a)}" onchange="knowledgeData.faq[${i}].a=this.value"></td>
+      <td><button class="btn btn-danger btn-sm" onclick="knowledgeData.faq.splice(${i},1);renderKnowledge()">x</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Contacts
+  document.getElementById('contact-name').value = knowledgeData.contacts.managerName || '';
+  document.getElementById('contact-hours').value = knowledgeData.contacts.workingHours || '';
+  document.getElementById('contact-website').value = knowledgeData.contacts.website || '';
+}
+
+function esc(s) { return String(s).replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+function toggleDirection(i) {
+  const el = document.getElementById('dir-edit-' + i);
+  el.classList.toggle('open');
+}
+
+function addDirection() {
+  knowledgeData.directions.push({
+    country: 'Новое направление',
+    visaTypes: ['туристическая'],
+    price: '[ЗАПОЛНИ]',
+    processingTime: '[ЗАПОЛНИ]',
+    documents: ['Загранпаспорт'],
+    notes: ''
+  });
+  renderKnowledge();
+}
+
+function removeDirection(i) {
+  knowledgeData.directions.splice(i, 1);
+  renderKnowledge();
+}
+
+function addFaq() {
+  knowledgeData.faq.push({ q: '', a: '' });
+  renderKnowledge();
+}
+
+async function saveKnowledge() {
+  knowledgeData.contacts.managerName = document.getElementById('contact-name').value;
+  knowledgeData.contacts.workingHours = document.getElementById('contact-hours').value;
+  knowledgeData.contacts.website = document.getElementById('contact-website').value;
+
+  try {
+    const res = await apiFetch('/knowledge', {
+      method: 'POST',
+      body: JSON.stringify(knowledgeData)
+    });
+    const data = await res.json();
+    if (data.ok) showToast('База знаний сохранена');
+    else showToast('Ошибка: ' + (data.error || 'unknown'), 'error');
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+// --- Prompt ---
+async function loadPrompt() {
+  document.getElementById('prompt-loading').style.display = 'block';
+  document.getElementById('prompt-content').style.display = 'none';
+  try {
+    const res = await apiFetch('/prompt');
+    const data = await res.json();
+    const ta = document.getElementById('prompt-textarea');
+    ta.value = data.prompt;
+    updateCharCount();
+    document.getElementById('prompt-loading').style.display = 'none';
+    document.getElementById('prompt-content').style.display = 'block';
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+function updateCharCount() {
+  const len = document.getElementById('prompt-textarea').value.length;
+  document.getElementById('prompt-chars').textContent = len + ' символов';
+}
+document.getElementById('prompt-textarea').addEventListener('input', updateCharCount);
+
+async function savePrompt() {
+  const prompt = document.getElementById('prompt-textarea').value;
+  try {
+    const res = await apiFetch('/prompt', {
+      method: 'POST',
+      body: JSON.stringify({ prompt })
+    });
+    const data = await res.json();
+    if (data.ok) showToast('Промпт сохранён');
+    else showToast('Ошибка: ' + (data.error || 'unknown'), 'error');
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+// --- Logs ---
+let currentSubTab = 'all';
+
+function switchSubTab(tab, el) {
+  currentSubTab = tab;
+  document.querySelectorAll('.sub-tab').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('logs-all').style.display = tab === 'all' ? 'block' : 'none';
+  document.getElementById('logs-escalated').style.display = tab === 'escalated' ? 'block' : 'none';
+  if (tab === 'all') loadLogs();
+  else loadEscalations();
+}
+
+async function loadLogs() {
+  document.getElementById('logs-loading').style.display = 'block';
+  document.getElementById('logs-table').style.display = 'none';
+  try {
+    const res = await apiFetch('/logs?limit=50');
+    const data = await res.json();
+    renderLogs(data.logs || []);
+    document.getElementById('logs-loading').style.display = 'none';
+    document.getElementById('logs-table').style.display = 'table';
+  } catch (err) {
+    document.getElementById('logs-loading').innerHTML = 'Ошибка: ' + err.message;
+  }
+
+  // Also check escalation count for badge
+  try {
+    const res = await apiFetch('/escalations');
+    const data = await res.json();
+    const count = (data.escalations || []).length;
+    const badge = document.getElementById('escalation-badge');
+    if (count > 0) {
+      badge.textContent = count;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch {}
+}
+
+function renderLogs(logs) {
+  const tbody = document.getElementById('logs-body');
+  tbody.innerHTML = '';
+  if (logs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;padding:30px">Нет диалогов</td></tr>';
+    return;
+  }
+  logs.forEach((log, i) => {
+    const tr = document.createElement('tr');
+    const msgCount = (log.messages || []).length;
+    const time = log.updatedAt ? new Date(log.updatedAt).toLocaleString('ru') : '-';
+    tr.innerHTML = `
+      <td>${time}</td>
+      <td>${log.phone || log.contactId || '-'}</td>
+      <td>${msgCount}</td>
+      <td class="${log.escalated ? 'status-escalated' : 'status-ai'}">${log.escalated ? 'Эскалация' : 'AI'}</td>`;
+    tr.onclick = () => toggleLogDetail(i, log, tr);
+    tbody.appendChild(tr);
+  });
+}
+
+function toggleLogDetail(i, log, tr) {
+  const existing = document.getElementById('log-detail-' + i);
+  if (existing) { existing.remove(); return; }
+
+  const detailTr = document.createElement('tr');
+  detailTr.id = 'log-detail-' + i;
+  const td = document.createElement('td');
+  td.colSpan = 4;
+  let html = '<div class="dialog-detail">';
+  (log.messages || []).forEach(m => {
+    html += `<div class="chat-msg ${m.role}">${esc(m.content)}</div>`;
+  });
+  html += '</div>';
+  td.innerHTML = html;
+  detailTr.appendChild(td);
+  tr.after(detailTr);
+}
+
+async function loadEscalations() {
+  document.getElementById('esc-loading').style.display = 'block';
+  document.getElementById('esc-table').style.display = 'none';
+  document.getElementById('esc-empty').style.display = 'none';
+  try {
+    const res = await apiFetch('/escalations');
+    const data = await res.json();
+    const escs = data.escalations || [];
+    if (escs.length === 0) {
+      document.getElementById('esc-loading').style.display = 'none';
+      document.getElementById('esc-empty').style.display = 'block';
+      return;
+    }
+    renderEscalations(escs);
+    document.getElementById('esc-loading').style.display = 'none';
+    document.getElementById('esc-table').style.display = 'table';
+  } catch (err) {
+    document.getElementById('esc-loading').innerHTML = 'Ошибка: ' + err.message;
+  }
+}
+
+function renderEscalations(escs) {
+  const tbody = document.getElementById('esc-body');
+  tbody.innerHTML = '';
+  escs.forEach((log, i) => {
+    const tr = document.createElement('tr');
+    const msgCount = (log.messages || []).length;
+    const time = log.updatedAt ? new Date(log.updatedAt).toLocaleString('ru') : '-';
+    tr.innerHTML = `
+      <td>${time}</td>
+      <td>${log.phone || log.contactId || '-'}</td>
+      <td>${msgCount}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();resolveEsc('${log.contactId}')">Обработано</button></td>`;
+    tr.onclick = () => toggleLogDetail('esc-' + i, log, tr);
+    tbody.appendChild(tr);
+  });
+}
+
+async function resolveEsc(contactId) {
+  try {
+    await apiFetch('/escalations', {
+      method: 'POST',
+      body: JSON.stringify({ contactId })
+    });
+    showToast('Отмечено как обработанное');
+    loadEscalations();
+    loadLogs();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+</script>
+
+</body>
+</html>
