@@ -389,6 +389,10 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
       Промпт
     </div>
+    <div class="nav-item" data-page="clients" onclick="navigateTo('clients')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Клиенты
+    </div>
     <div class="nav-item" data-page="templates" onclick="navigateTo('templates')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
       Шаблоны
@@ -497,6 +501,29 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
     </div>
 
     <!-- PAGE: Chat Test -->
+    <!-- PAGE: Clients -->
+    <div class="page page-padded" id="page-clients">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="section-title" style="margin:0">Клиенты (бот не отвечает)</div>
+        <button class="btn btn-primary btn-sm" onclick="showAddClient()">+ Добавить</button>
+      </div>
+      <div id="add-client-form" style="display:none" class="card mb-16"><div class="card-body">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0;flex:1;min-width:140px"><label class="field-label">Телефон</label><input class="input" id="new-client-phone" placeholder="77001234567"></div>
+          <div class="field" style="margin:0;flex:1;min-width:140px"><label class="field-label">Имя</label><input class="input" id="new-client-name" placeholder="Имя клиента"></div>
+          <div class="field" style="margin:0;flex:1;min-width:140px"><label class="field-label">Направление</label><input class="input" id="new-client-country" placeholder="Шенген, США..."></div>
+          <button class="btn btn-primary" onclick="addClient()">Добавить</button>
+          <button class="btn btn-outline" onclick="hideAddClient()">Отмена</button>
+        </div>
+      </div></div>
+      <div id="clients-loading" class="loading"><div class="spinner"></div> Загрузка...</div>
+      <table class="table" id="clients-table" style="display:none">
+        <thead><tr><th>Телефон</th><th>Имя</th><th>Направление</th><th>Добавлен</th><th></th></tr></thead>
+        <tbody id="clients-body"></tbody>
+      </table>
+      <div id="clients-empty" style="display:none" class="card"><div class="card-body" style="text-align:center;color:var(--text-tertiary);padding:30px">Нет клиентов в базе</div></div>
+    </div>
+
     <!-- PAGE: Templates -->
     <div class="page page-padded" id="page-templates">
       <div class="info-banner">
@@ -587,13 +614,14 @@ function navigateTo(page) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-  const titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', prompt: 'Промпт', templates: 'Шаблоны', chattest: 'Чат-тест' };
+  const titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', clients: 'Клиенты', prompt: 'Промпт', templates: 'Шаблоны', chattest: 'Чат-тест' };
   document.getElementById('topbar-title').textContent = titles[page] || '';
   toggleSidebar(false);
   if (page === 'dashboard') loadDashboard();
   if (page === 'conversations') loadConversations();
   if (page === 'knowledge' && !App.state.knowledge) loadKnowledge();
   if (page === 'prompt') loadPrompt();
+  if (page === 'clients') loadClients();
   if (page === 'templates') loadTemplates();
 }
 function toggleSidebar(force) {
@@ -947,6 +975,66 @@ async function savePrompt() {
     const res = await apiFetch('/prompt', { method: 'POST', body: JSON.stringify({ prompt: document.getElementById('prompt-textarea').value }) });
     const data = await res.json();
     if (data.ok) showToast('Промпт сохранён'); else showToast(data.error||'Ошибка', 'error');
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+// ===== CLIENTS =====
+async function loadClients() {
+  document.getElementById('clients-loading').style.display = 'flex';
+  document.getElementById('clients-table').style.display = 'none';
+  document.getElementById('clients-empty').style.display = 'none';
+  try {
+    var res = await apiFetch('/settings?action=clients');
+    var data = await res.json();
+    var clients = data.clients || [];
+    if (clients.length === 0) {
+      document.getElementById('clients-loading').style.display = 'none';
+      document.getElementById('clients-empty').style.display = 'block';
+      return;
+    }
+    var tbody = document.getElementById('clients-body');
+    tbody.innerHTML = clients.map(function(c) {
+      var date = c.addedAt ? new Date(c.addedAt).toLocaleDateString('ru') : '-';
+      return '<tr><td style="font-weight:600">+' + esc(c.contactId) + '</td>' +
+        '<td>' + esc(c.name || '-') + '</td>' +
+        '<td>' + esc(c.country || '-') + '</td>' +
+        '<td class="text-secondary">' + date + '</td>' +
+        '<td><button class="btn btn-sm btn-outline" onclick="removeClient(\'' + esc(c.contactId) + '\')">Удалить</button></td></tr>';
+    }).join('');
+    document.getElementById('clients-loading').style.display = 'none';
+    document.getElementById('clients-table').style.display = 'table';
+  } catch (err) {
+    document.getElementById('clients-loading').innerHTML = 'Ошибка: ' + err.message;
+  }
+}
+function showAddClient() { document.getElementById('add-client-form').style.display = 'block'; }
+function hideAddClient() { document.getElementById('add-client-form').style.display = 'none'; }
+async function addClient() {
+  var phone = document.getElementById('new-client-phone').value.trim().replace(/\D/g, '');
+  var name = document.getElementById('new-client-name').value.trim();
+  var country = document.getElementById('new-client-country').value.trim();
+  if (!phone) { showToast('Введите номер телефона', 'error'); return; }
+  try {
+    await apiFetch('/settings?action=clients', {
+      method: 'POST',
+      body: JSON.stringify({ contactId: phone, name: name, country: country, status: 'paid' })
+    });
+    showToast('Клиент добавлен');
+    document.getElementById('new-client-phone').value = '';
+    document.getElementById('new-client-name').value = '';
+    document.getElementById('new-client-country').value = '';
+    hideAddClient();
+    loadClients();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+async function removeClient(contactId) {
+  try {
+    await apiFetch('/settings?action=clients', {
+      method: 'POST',
+      body: JSON.stringify({ contactId: contactId, remove: true })
+    });
+    showToast('Клиент удалён');
+    loadClients();
   } catch (err) { showToast(err.message, 'error'); }
 }
 

@@ -5,7 +5,6 @@ const { escalate } = require("../lib/escalation");
 const { transcribeVoice } = require("../lib/voice");
 const { kv } = require("../lib/kv");
 
-// Dedup: track processed message IDs in-memory per invocation
 const processedIds = new Set();
 
 module.exports = async function handler(req, res) {
@@ -14,69 +13,70 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const body = req.body;
+    var body = req.body;
+    if (body.test === true) return res.status(200).json({ ok: true });
 
-    // --- Wazzup test webhook ---
-    if (body.test === true) {
-      return res.status(200).json({ ok: true });
-    }
-
-    // --- Wazzup webhook: messages array ---
-    const messages = body.messages;
+    var messages = body.messages;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(200).json({ ok: true, skipped: "no_messages" });
     }
 
-    // Check if bot is enabled (messages are always saved regardless)
-    let botEnabled = true;
+    var botEnabled = true;
     try {
-      const enabled = await kv.get("bot_enabled");
+      var enabled = await kv.get("bot_enabled");
       if (enabled === false) botEnabled = false;
     } catch {}
 
-    // Process each incoming message
-    for (const msg of messages) {
-      await processMessage(msg, botEnabled);
+    for (var i = 0; i < messages.length; i++) {
+      await processMessage(messages[i], botEnabled);
     }
 
     return res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("Webhook handler error:", err);
+    console.error("Webhook error:", err);
     return res.status(200).json({ ok: false, error: err.message });
   }
 };
 
+async function saveLog(contactId, chatId, channelId, escalated) {
+  try {
+    var history = await getHistory(contactId);
+    var logKey = "log:" + contactId;
+    await kv.set(logKey, {
+      contactId: contactId,
+      phone: chatId,
+      channelId: channelId,
+      messages: history,
+      escalated: escalated,
+      updatedAt: new Date().toISOString(),
+    }, { ex: 30 * 86400 });
+    await kv.zadd("log:index", { score: Date.now(), member: logKey });
+  } catch (err) {
+    console.error("Log save error:", err.message);
+  }
+}
+
 async function processMessage(msg, botEnabled) {
-  const messageId = msg.messageId || "";
-  const channelId = msg.channelId || "";
-  const chatId = msg.chatId || "";
-  const chatType = msg.chatType || "";
-  const messageType = msg.type || "text";
-  const isEcho = msg.isEcho || false;
-  const text = (msg.text || "").trim();
-  const contentUrl = msg.content || "";
-  const authorType = msg.authorType || "";
-  const contactId = chatId;
+  var messageId = msg.messageId || "";
+  var channelId = msg.channelId || "";
+  var chatId = msg.chatId || "";
+  var chatType = msg.chatType || "";
+  var messageType = msg.type || "text";
+  var isEcho = msg.isEcho || false;
+  var text = (msg.text || "").trim();
+  var contentUrl = msg.content || "";
+  var authorType = msg.authorType || "";
+  var contactId = chatId;
 
   if (chatType && chatType !== "whatsapp") return;
   if (!contactId) return;
 
-  // Outgoing messages (from manager or bot echo) — save to log but don't process
+  // --- Outgoing messages (manager/bot) — save to log only ---
   if (isEcho || authorType === "manager" || authorType === "bot") {
     if (text) {
-      // Distinguish: manager wrote manually vs bot auto-reply
-      var msgRole = (authorType === "manager") ? "manager" : "assistant";
-      await addMessage(contactId, msgRole, text);
-      try {
-        const updatedHistory = await getHistory(contactId);
-        const logKey = `log:${contactId}`;
-        const existing = await kv.get(logKey);
-        if (existing) {
-          existing.messages = updatedHistory;
-          existing.updatedAt = new Date().toISOString();
-          await kv.set(logKey, existing, { ex: 30 * 86400 });
-        }
-      } catch {}
+      var role = (authorType === "manager") ? "manager" : "assistant";
+      await addMessage(contactId, role, text);
+      await saveLog(contactId, chatId, channelId, false);
     }
     return;
   }
@@ -87,106 +87,80 @@ async function processMessage(msg, botEnabled) {
   if (messageId) {
     if (processedIds.has(messageId)) return;
     try {
-      const kvKey = `dedup:${messageId}`;
-      const exists = await kv.get(kvKey);
+      var exists = await kv.get("dedup:" + messageId);
       if (exists) return;
-      await kv.set(kvKey, 1, { ex: 3600 });
+      await kv.set("dedup:" + messageId, 1, { ex: 3600 });
     } catch {}
     processedIds.add(messageId);
   }
 
-  // --- Skip paid/existing clients ---
+  // --- Paid clients → save message + escalate silently ---
   try {
-    const clientStatus = await kv.get(`client:${contactId}`);
-    if (clientStatus === "paid") return;
+    var clientStatus = await kv.get("client:" + contactId);
+    if (clientStatus === "paid") {
+      if (text) await addMessage(contactId, "user", text);
+      else await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
+      await saveLog(contactId, chatId, channelId, true);
+      await escalate(channelId, chatId, await getHistory(contactId));
+      return;
+    }
   } catch {}
 
-  // --- Handle message by type ---
-  let messageText = text;
-
+  // --- Voice messages ---
+  var messageText = text;
   if ((messageType === "voice" || messageType === "audio") && contentUrl) {
     if (!botEnabled) {
-      // Save raw info, don't transcribe when bot is off
       messageText = "[Голосовое сообщение]";
     } else {
-      const transcribed = await transcribeVoice(contentUrl);
-      if (!transcribed) {
-        await sendMessage(channelId, chatId, "Не смог распознать голосовое, напишите текстом пожалуйста");
-        return;
-      }
-      messageText = `[Голосовое] ${transcribed}`;
+      var transcribed = await transcribeVoice(contentUrl);
+      if (!transcribed) return; // Silent — voice not recognized
+      messageText = "[Голосовое] " + transcribed;
     }
   }
 
+  // --- Media without text (photo/video/file) → save + escalate silently ---
   if (!messageText && messageType !== "text") {
-    if (botEnabled) {
-      await sendMessage(channelId, chatId, "Получил! Напишите пожалуйста текстом, чем могу помочь?");
-    }
+    await addMessage(contactId, "user", "[Медиа: " + messageType + "]");
+    await saveLog(contactId, chatId, channelId, true);
+    await escalate(channelId, chatId, await getHistory(contactId));
     return;
   }
 
   if (!messageText) return;
 
-  // --- Always save incoming message ---
+  // --- Save incoming message ---
   await addMessage(contactId, "user", messageText);
+  await saveLog(contactId, chatId, channelId, false);
 
-  // --- Log to KV (always, even when bot is off) ---
-  try {
-    const updatedHistory = await getHistory(contactId);
-    const logKey = `log:${contactId}`;
-    await kv.set(logKey, {
-      contactId,
-      phone: chatId,
-      channelId,
-      messages: updatedHistory,
-      escalated: false,
-      updatedAt: new Date().toISOString(),
-    }, { ex: 30 * 86400 });
-    await kv.zadd("log:index", { score: Date.now(), member: logKey });
-  } catch (err) {
-    console.error("Log save error:", err.message);
-  }
-
-  // --- If bot is disabled, stop here (message is saved but no reply) ---
+  // --- Bot disabled — message saved, no reply ---
   if (!botEnabled) return;
 
-  // --- Main AI flow ---
-  const history = await getHistory(contactId);
-
-  let reply;
+  // --- AI flow ---
+  var history = await getHistory(contactId);
+  var reply;
   try {
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), 10000)
-    );
-    reply = await Promise.race([getReply(contactId, history, messageText), timeoutPromise]);
+    var timeout = new Promise(function(_, reject) {
+      setTimeout(function() { reject(new Error("timeout")); }, 10000);
+    });
+    reply = await Promise.race([getReply(contactId, history, messageText), timeout]);
   } catch (err) {
-    console.error("AI error/timeout:", err.message);
-    await sendMessage(channelId, chatId, "Секунду, уточняю информацию...");
+    // AI timeout → escalate silently (no message to client)
+    console.error("AI error:", err.message);
+    await saveLog(contactId, chatId, channelId, true);
+    await escalate(channelId, chatId, await getHistory(contactId));
     return;
   }
 
-  // Save bot reply to history
+  // Save bot reply
   await addMessage(contactId, "assistant", reply.text);
 
-  // Update log with reply
-  try {
-    const fullHistory = await getHistory(contactId);
-    const logKey = `log:${contactId}`;
-    await kv.set(logKey, {
-      contactId,
-      phone: chatId,
-      channelId,
-      messages: fullHistory,
-      escalated: reply.shouldEscalate,
-      updatedAt: new Date().toISOString(),
-    }, { ex: 30 * 86400 });
-  } catch {}
-
-  // Send reply or escalate
   if (reply.shouldEscalate) {
-    const fullHistory = await getHistory(contactId);
-    await escalate(channelId, chatId, fullHistory);
+    // Send bot's reply to client first, then notify group
+    if (reply.text) await sendMessage(channelId, chatId, reply.text);
+    await saveLog(contactId, chatId, channelId, true);
+    await escalate(channelId, chatId, await getHistory(contactId));
   } else {
     await sendMessage(channelId, chatId, reply.text);
+    await saveLog(contactId, chatId, channelId, false);
   }
 }
