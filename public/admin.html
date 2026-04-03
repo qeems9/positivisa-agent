@@ -947,43 +947,96 @@ async function savePrompt() {
 }
 
 // ===== TEMPLATES =====
+var _rawTemplates = [];
+
 async function loadTemplates() {
   document.getElementById('templates-loading').style.display = 'flex';
   document.getElementById('templates-content').style.display = 'none';
   try {
     var res = await apiFetch('/templates');
     var data = await res.json();
-    var templates = data.templates || [];
-    var html = '<div class="tpl-grid">';
-    templates.forEach(function(t, i) {
-      html += '<div class="tpl-card" id="tpl-card-' + i + '" onclick="copyTemplate(' + i + ',this)">' +
-        '<div class="tpl-card-header"><h4>' + esc(t.name) + '</h4><span class="tpl-card-copy">Нажмите чтобы скопировать</span></div>' +
-        '<div class="tpl-card-body">' + esc(t.rendered) + '</div></div>';
-    });
-    html += '</div>';
-    document.getElementById('templates-content').innerHTML = html;
+    _rawTemplates = data.templates || [];
+    renderTemplates();
     document.getElementById('templates-loading').style.display = 'none';
     document.getElementById('templates-content').style.display = 'block';
-    // Store rendered text for copying
-    window._templateTexts = templates.map(function(t) { return t.rendered; });
   } catch (err) {
     document.getElementById('templates-loading').innerHTML = 'Ошибка: ' + err.message;
   }
 }
 
-function copyTemplate(idx, el) {
-  var text = (window._templateTexts || [])[idx];
-  if (!text) return;
-  navigator.clipboard.writeText(text).then(function() {
-    el.classList.add('copied');
-    var copyLabel = el.querySelector('.tpl-card-copy');
-    if (copyLabel) copyLabel.textContent = 'Скопировано!';
-    showToast('Шаблон скопирован');
-    setTimeout(function() {
-      el.classList.remove('copied');
-      if (copyLabel) copyLabel.textContent = 'Нажмите чтобы скопировать';
-    }, 2000);
+function renderTemplates() {
+  var html = '<div class="tpl-grid">';
+  _rawTemplates.forEach(function(t, i) {
+    html += '<div class="tpl-card" id="tpl-card-' + i + '">' +
+      '<div class="tpl-card-header">' +
+        '<h4>' + esc(t.name) + '</h4>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<button class="btn-icon" onclick="event.stopPropagation();editTemplate(' + i + ')" title="Редактировать шаблон"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' +
+          '<span class="tpl-card-copy" style="cursor:pointer" onclick="event.stopPropagation();copyTemplate(' + i + ')">Копировать</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tpl-card-body" id="tpl-body-' + i + '">' + esc(t.rendered) + '</div>' +
+      '</div>';
   });
+  html += '</div>';
+  document.getElementById('templates-content').innerHTML = html;
+}
+
+function copyTemplate(idx) {
+  var t = _rawTemplates[idx];
+  if (!t) return;
+  navigator.clipboard.writeText(t.rendered).then(function() {
+    var card = document.getElementById('tpl-card-' + idx);
+    if (card) {
+      card.classList.add('copied');
+      showToast('Шаблон скопирован');
+      setTimeout(function() { card.classList.remove('copied'); }, 2000);
+    }
+  });
+}
+
+function editTemplate(idx) {
+  var t = _rawTemplates[idx];
+  if (!t) return;
+  var body = document.getElementById('tpl-body-' + idx);
+
+  // Highlight variables in the raw template
+  var rawText = t.template || '';
+  var highlighted = esc(rawText).replace(/\{\{(\w+(\.\w+)?)\}\}/g, '<span style="color:var(--accent);font-weight:600">{{$1}}</span>');
+
+  body.innerHTML = '<div style="margin-bottom:8px;font-size:11px;color:var(--text-tertiary)">Переменные <span style="color:var(--accent);font-weight:600">{{price}}</span>, <span style="color:var(--accent);font-weight:600">{{services}}</span> и т.д. подставляются автоматически из базы знаний</div>' +
+    '<textarea class="kb-notes-area" id="tpl-edit-' + idx + '" rows="10" style="font-size:13px;line-height:1.5;min-height:150px">' + esc(rawText) + '</textarea>' +
+    '<div style="display:flex;gap:8px;margin-top:8px">' +
+      '<button class="btn btn-sm btn-primary" onclick="saveTemplate(' + idx + ')">Сохранить</button>' +
+      '<button class="btn btn-sm btn-outline" onclick="loadTemplates()">Отмена</button>' +
+    '</div>';
+}
+
+async function saveTemplate(idx) {
+  var textarea = document.getElementById('tpl-edit-' + idx);
+  if (!textarea) return;
+  _rawTemplates[idx].template = textarea.value;
+
+  // Save all templates to KV
+  var toSave = _rawTemplates.map(function(t) {
+    return { id: t.id, name: t.name, country: t.country, template: t.template };
+  });
+
+  try {
+    var res = await apiFetch('/templates', {
+      method: 'POST',
+      body: JSON.stringify({ templates: toSave })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      showToast('Шаблон сохранён');
+      loadTemplates(); // reload with fresh rendered data
+    } else {
+      showToast(data.error || 'Ошибка', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 // ===== CHAT TEST =====
