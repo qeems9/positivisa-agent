@@ -22,7 +22,12 @@ module.exports = async function handler(req, res) {
       tokensUsed: reply.tokensUsed,
     });
   } catch (err) {
-    console.error("Admin test error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("Admin test error:", err.message, err.status, err.code, err.type);
+    return res.status(500).json({
+      error: err.message,
+      status: err.status,
+      code: err.code,
+      type: err.type,
+    });
   }
 };
