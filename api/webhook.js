@@ -69,22 +69,33 @@ async function processMessage(msg, botEnabled) {
 
   // --- Outgoing messages ---
   if (isEcho || authorType === "manager" || authorType === "bot") {
-    // Only save MANAGER messages (bot echo is already saved when we send it)
-    if (text && authorType === "manager") {
-      await addMessage(contactId, "manager", text);
-      try {
-        var logKey = "log:" + contactId;
-        var log = await kv.get(logKey);
-        if (log) {
-          log.needsReply = false;
-          log.escalated = false;
-          log.messages = await getHistory(contactId);
-          log.updatedAt = new Date().toISOString();
-          await kv.set(logKey, log, { ex: 30 * 86400 });
-        }
-      } catch {}
+    if (text) {
+      // Check if this message was sent by our bot (dedup with sent messages)
+      var isBotMessage = authorType === "bot";
+      if (!isBotMessage && messageId) {
+        try {
+          var sentKey = "sent:" + messageId;
+          var wasSent = await kv.get(sentKey);
+          if (wasSent) isBotMessage = true;
+        } catch {}
+      }
+
+      if (!isBotMessage) {
+        // Manager wrote from WhatsApp — save and clear flags
+        await addMessage(contactId, "manager", text);
+        try {
+          var logKey = "log:" + contactId;
+          var log = await kv.get(logKey);
+          if (log) {
+            log.needsReply = false;
+            log.escalated = false;
+            log.messages = await getHistory(contactId);
+            log.updatedAt = new Date().toISOString();
+            await kv.set(logKey, log, { ex: 30 * 86400 });
+          }
+        } catch {}
+      }
     }
-    // Bot echo — skip (already saved in the flow that sent it)
     return;
   }
 
@@ -172,7 +183,10 @@ async function processMessage(msg, botEnabled) {
 
   if (reply.shouldEscalate) {
     // Send reply to client, then notify group
-    if (reply.text) await sendMessage(channelId, chatId, reply.text);
+    if (reply.text) {
+      var sentId = await sendMessage(channelId, chatId, reply.text);
+      if (sentId && typeof sentId === "string") try { await kv.set("sent:" + sentId, 1, { ex: 300 }); } catch {}
+    }
     var msgLower = messageText.toLowerCase();
     var escReason = "требуется менеджер";
     if (msgLower.includes("оплат") || msgLower.includes("переводить") || msgLower.includes("начнем") || msgLower.includes("начать") || msgLower.includes("счёт") || msgLower.includes("счет") || msgLower.includes("kaspi")) {
@@ -181,7 +195,8 @@ async function processMessage(msg, botEnabled) {
     await saveLog(contactId, chatId, channelId, { escalated: true, needsReply: true });
     await escalate(channelId, chatId, await getHistory(contactId), escReason);
   } else {
-    await sendMessage(channelId, chatId, reply.text);
+    var sentId2 = await sendMessage(channelId, chatId, reply.text);
+    if (sentId2 && typeof sentId2 === "string") try { await kv.set("sent:" + sentId2, 1, { ex: 300 }); } catch {}
     await saveLog(contactId, chatId, channelId, {});
   }
 }
