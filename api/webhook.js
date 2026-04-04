@@ -67,10 +67,10 @@ async function processMessage(msg, botEnabled) {
   if (chatType && chatType !== "whatsapp") return;
   if (!contactId) return;
 
-  // Debug: log all messages to see what Wazzup sends
+  // Debug: log all messages
   try {
     var debugList = (await kv.get("debug:msgs")) || [];
-    debugList.unshift({ chatId: chatId, isEcho: isEcho, authorType: authorType, type: messageType, text: (text||'').substring(0,30), ts: new Date().toISOString() });
+    debugList.unshift({ chatId: chatId, msgId: messageId, isEcho: isEcho, authorType: authorType, text: (text||'').substring(0,30), ts: new Date().toISOString() });
     await kv.set("debug:msgs", debugList.slice(0, 30), { ex: 3600 });
   } catch {}
 

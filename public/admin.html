@@ -587,17 +587,26 @@ async function apiFetch(path, options = {}) {
 }
 
 // ===== NAVIGATION =====
+var _convInterval = null;
 function navigateTo(page) {
   App.state.currentPage = page;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
-  document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
-  const titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', clients: 'Клиенты', prompt: 'Промпт', templates: 'Шаблоны', chattest: 'Чат-тест' };
+  document.querySelector('.nav-item[data-page="' + page + '"]').classList.add('active');
+  var titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', clients: 'Клиенты', prompt: 'Промпт', templates: 'Шаблоны', chattest: 'Чат-тест' };
   document.getElementById('topbar-title').textContent = titles[page] || '';
   toggleSidebar(false);
+
+  // Stop auto-refresh when leaving conversations
+  if (_convInterval) { clearInterval(_convInterval); _convInterval = null; }
+
   if (page === 'dashboard') loadDashboard();
-  if (page === 'conversations') loadConversations();
+  if (page === 'conversations') {
+    loadConversations();
+    // Auto-refresh every 10 seconds
+    _convInterval = setInterval(function() { loadConversationsSilent(); }, 10000);
+  }
   if (page === 'knowledge' && !App.state.knowledge) loadKnowledge();
   if (page === 'prompt') loadPrompt();
   if (page === 'clients') loadClients();
@@ -722,17 +731,30 @@ async function loadDashboard() {
 // ===== CONVERSATIONS =====
 async function loadConversations() {
   try {
-    const res = await apiFetch('/logs?limit=50');
-    const data = await res.json();
+    var res = await apiFetch('/logs?limit=50');
+    var data = await res.json();
     App.state.conversations = data.logs || [];
     renderConvList();
-    // Update badge
-    const escRes = await apiFetch('/escalations');
-    const escData = await escRes.json();
-    const badge = document.getElementById('nav-esc-badge');
-    const c = (escData.escalations||[]).length;
-    if (c > 0) { badge.textContent = c; badge.style.display = ''; } else { badge.style.display = 'none'; }
   } catch (err) { document.getElementById('conv-items').innerHTML = '<p class="text-secondary" style="padding:20px">Ошибка: ' + err.message + '</p>'; }
+}
+// Silent refresh — no flicker, updates list + selected conversation
+async function loadConversationsSilent() {
+  try {
+    var res = await apiFetch('/logs?limit=50');
+    var data = await res.json();
+    App.state.conversations = data.logs || [];
+    renderConvList();
+    // If a conversation is selected, refresh its messages
+    if (App.state.selectedConv) {
+      var updated = App.state.conversations.find(function(l) {
+        return l.contactId === App.state.selectedConv.contactId;
+      });
+      if (updated && JSON.stringify(updated.messages) !== JSON.stringify(App.state.selectedConv.messages)) {
+        App.state.selectedConv = updated;
+        selectConv(updated);
+      }
+    }
+  } catch {}
 }
 function renderConvList() {
   var all = App.state.conversations;
