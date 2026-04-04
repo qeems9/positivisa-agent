@@ -3,15 +3,16 @@ var { kv } = require("../../lib/kv");
 var { sendMessage } = require("../../lib/wazzup");
 var { addMessage, getHistory } = require("../../lib/conversation");
 
-var FOLLOWUP_TEXT = "Здравствуйте! К сожалению, не получили от вас никакого ответа. Подскажите вопрос по визе еще актуален?";
+var FOLLOWUP_3D = "Здравствуйте! К сожалению, не получили от вас никакого ответа. Подскажите вопрос по визе еще актуален?";
+var FOLLOWUP_7D = "Здравствуйте! Не получили от вас никакого ответа. Сохраните наш номер на будущее \u{1F607}\nИ обращайтесь если понадобится наша помощь, а пока закрываем вашу заявку";
 var THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+var SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
 module.exports = async function handler(req, res) {
   if (!checkAuth(req, res)) return;
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    // Get all conversation keys
     var keys = await kv.zrange("log:index", 0, -1, { rev: true });
     if (!keys || keys.length === 0) return res.status(200).json({ sent: 0 });
 
@@ -20,7 +21,7 @@ module.exports = async function handler(req, res) {
       try {
         var log = await kv.get(keys[i]);
         if (!log || !log.channelId || !log.contactId) continue;
-        if (log.isPaid || log.needsReply || log.followupSent) continue;
+        if (log.isPaid || log.needsReply) continue;
 
         var msgs = log.messages || [];
         if (msgs.length === 0) continue;
@@ -33,29 +34,37 @@ module.exports = async function handler(req, res) {
           if (lastUserIdx !== -1 && lastOutIdx !== -1) break;
         }
 
-        // Client silent: last outgoing after last user msg, 3+ days ago
-        if (lastOutIdx > lastUserIdx && log.updatedAt) {
-          var silence = Date.now() - new Date(log.updatedAt).getTime();
-          if (silence >= THREE_DAYS) {
-            // Send follow-up
-            var chatId = log.phone || log.contactId;
-            var sentId = await sendMessage(log.channelId, chatId, FOLLOWUP_TEXT);
-            if (sentId) {
-              // Mark sent in KV
-              if (sentId && typeof sentId === "string") {
-                try { await kv.set("sent:" + sentId, 1, { ex: 300 }); } catch {}
-              }
-              await addMessage(log.contactId, "assistant", FOLLOWUP_TEXT);
-              log.followupSent = true;
-              log.messages = await getHistory(log.contactId);
-              log.updatedAt = new Date().toISOString();
-              await kv.set(keys[i], log, { ex: 30 * 86400 });
-              sent++;
-            }
+        // Client silent: last outgoing after last user msg
+        if (lastOutIdx <= lastUserIdx || !log.updatedAt) continue;
+        var silence = Date.now() - new Date(log.updatedAt).getTime();
+
+        var chatId = log.phone || log.contactId;
+        var textToSend = null;
+
+        // 7+ days: final closure (if 3-day followup was already sent)
+        if (silence >= SEVEN_DAYS && log.followup3dSent && !log.followup7dSent) {
+          textToSend = FOLLOWUP_7D;
+          log.followup7dSent = true;
+        }
+        // 3+ days: first reminder
+        else if (silence >= THREE_DAYS && !log.followup3dSent) {
+          textToSend = FOLLOWUP_3D;
+          log.followup3dSent = true;
+        }
+
+        if (textToSend) {
+          var sentId = await sendMessage(log.channelId, chatId, textToSend);
+          if (sentId) {
+            if (typeof sentId === "string") try { await kv.set("sent:" + sentId, 1, { ex: 300 }); } catch {}
+            await addMessage(log.contactId, "assistant", textToSend);
+            log.messages = await getHistory(log.contactId);
+            log.updatedAt = new Date().toISOString();
+            await kv.set(keys[i], log, { ex: 30 * 86400 });
+            sent++;
           }
         }
       } catch (err) {
-        console.error("Followup check error:", err.message);
+        console.error("Followup error:", err.message);
       }
     }
 
