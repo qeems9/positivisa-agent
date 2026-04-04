@@ -299,24 +299,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .test-input-row { display: flex; gap: 8px; padding: 12px 16px; background: var(--card); border-top: 1px solid var(--border); }
 .test-input { flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 20px; font-size: 14px; outline: none; font-family: inherit; }
 .test-input:focus { border-color: var(--accent); }
-.bubble-actions { display: flex; gap: 4px; margin-top: 4px; }
-.bubble-edit-btn { background: none; border: none; cursor: pointer; color: var(--text-tertiary); padding: 2px; transition: color 0.15s; }
-.bubble-edit-btn:hover { color: var(--accent); }
-.bubble-edit-area { width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 60px; outline: none; }
-.bubble-edit-actions { display: flex; gap: 6px; margin-top: 6px; }
-/* Train modal */
-.modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
-.modal-backdrop.show { display: flex; }
-.modal { background: var(--card); border-radius: var(--radius-lg); max-width: 560px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
-.modal-header { padding: 18px 20px; border-bottom: 1px solid var(--border); font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
-.modal-body { padding: 20px; }
-.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
-.suggestion-block { margin-bottom: 14px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--border); }
-.suggestion-block h4 { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
-.suggestion-block pre { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
-.suggestion-block.prompt { border-left: 3px solid var(--accent); }
-.suggestion-block.knowledge { border-left: 3px solid var(--success); }
-.suggestion-block.explanation { border-left: 3px solid var(--warning); background: var(--warning-light); }
 
 /* ===== LOADING ===== */
 .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--text-tertiary); gap: 10px; }
@@ -559,20 +541,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
           <div class="test-input-row">
             <input class="test-input" id="test-input" placeholder="Напишите как клиент..." onkeydown="if(event.key==='Enter')sendChat()">
             <button class="conv-reply-send" onclick="sendChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Train modal -->
-      <div class="modal-backdrop" id="train-modal">
-        <div class="modal">
-          <div class="modal-header">
-            AI-анализ корректировки
-            <button class="btn-icon" onclick="closeTrainModal()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-          </div>
-          <div class="modal-body" id="train-modal-body"><div class="loading"><div class="spinner"></div> Анализирую...</div></div>
-          <div class="modal-footer" id="train-modal-footer" style="display:none">
-            <button class="btn btn-primary" onclick="closeTrainModal()">Закрыть</button>
           </div>
         </div>
       </div>
@@ -1192,204 +1160,52 @@ async function saveTemplate(idx) {
 }
 
 // ===== CHAT TEST =====
-let testMsgIndex = 0;
-let trainSuggestions = null;
-
 async function sendChat() {
-  const input = document.getElementById('test-input');
-  const text = input.value.trim();
+  var input = document.getElementById('test-input');
+  var text = input.value.trim();
   if (!text) return;
   input.value = '';
   appendTestMsg('user', text);
-  const userMsg = text;
   try {
-    const res = await apiFetch('/test', { method: 'POST', body: JSON.stringify({ message: text, history: App.state.chatHistory }) });
-    const data = await res.json();
+    var res = await apiFetch('/test', { method: 'POST', body: JSON.stringify({ message: text, history: App.state.chatHistory }) });
+    var data = await res.json();
     if (data.error) { appendTestMsg('bot', 'Ошибка: ' + data.error); return; }
-    const reply = data.reply || '(пустой ответ)';
+    var reply = data.reply || '(пустой ответ)';
     App.state.chatHistory.push({ role: 'user', content: text });
     App.state.chatHistory.push({ role: 'assistant', content: reply });
-    appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed, userMsg);
+    appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed);
     saveChatToStorage();
   } catch (err) { appendTestMsg('bot', 'Ошибка: ' + (err.message||'')); }
 }
-function resetChat() { App.state.chatHistory = []; testMsgIndex = 0; document.getElementById('test-messages').innerHTML = ''; saveChatToStorage(); }
+function resetChat() { App.state.chatHistory = []; document.getElementById('test-messages').innerHTML = ''; saveChatToStorage(); }
 function saveChatToStorage() {
   try {
-    const msgs = document.getElementById('test-messages').innerHTML;
     localStorage.setItem('pv_chat_history', JSON.stringify(App.state.chatHistory));
-    localStorage.setItem('pv_chat_html', msgs);
-    localStorage.setItem('pv_chat_idx', testMsgIndex);
+    localStorage.setItem('pv_chat_html', document.getElementById('test-messages').innerHTML);
   } catch {}
 }
 function loadChatFromStorage() {
   try {
-    const history = JSON.parse(localStorage.getItem('pv_chat_history') || '[]');
-    const html = localStorage.getItem('pv_chat_html') || '';
-    const idx = parseInt(localStorage.getItem('pv_chat_idx') || '0');
-    if (history.length > 0 && html) {
-      App.state.chatHistory = history;
-      document.getElementById('test-messages').innerHTML = html;
-      testMsgIndex = idx;
-    }
+    var h = JSON.parse(localStorage.getItem('pv_chat_history') || '[]');
+    var html = localStorage.getItem('pv_chat_html') || '';
+    if (h.length > 0 && html) { App.state.chatHistory = h; document.getElementById('test-messages').innerHTML = html; }
   } catch {}
 }
-
-// Store edit data separately (not in HTML)
-const testEditData = {};
-
-function appendTestMsg(role, text, escalate, tokens, userMsg) {
-  const idx = testMsgIndex++;
-  const div = document.createElement('div');
+function appendTestMsg(role, text, escalate, tokens) {
+  var div = document.createElement('div');
   div.className = 'bubble ' + (role === 'user' ? 'bubble-user' : 'bubble-bot');
-  div.id = 'test-bubble-' + idx;
-  let html = '';
+  var html = '';
   if (role !== 'user') {
-    // Store data for editing
-    testEditData[idx] = { original: text || '', userMsg: userMsg || '' };
     html += '<div class="bubble-label bot">AI Bot</div>';
-    html += '<div id="test-text-' + idx + '">' + String(text||'').replace(/\n/g, '<br>') + '</div>';
-    if (escalate) html += '<span style="color:var(--danger);font-weight:600;font-size:12px">ESCALATE</span>';
+    html += String(text||'').replace(/\n/g, '<br>');
+    if (escalate) html += '<br><span style="color:var(--danger);font-weight:600;font-size:12px">ESCALATE</span>';
     if (tokens) html += '<div class="bubble-meta">' + tokens + ' tokens</div>';
-    html += '<div class="bubble-actions"><button class="bubble-edit-btn" data-edit-idx="' + idx + '">';
-    html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    html += ' Исправить ответ</button></div>';
   } else {
     html = String(text||'').replace(/\n/g, '<br>');
   }
   div.innerHTML = html;
-  const c = document.getElementById('test-messages');
+  var c = document.getElementById('test-messages');
   c.appendChild(div); c.scrollTop = c.scrollHeight;
-}
-
-// Delegated click handler for edit buttons (works after localStorage restore)
-document.addEventListener('click', function(e) {
-  const editBtn = e.target.closest('[data-edit-idx]');
-  if (editBtn) {
-    const idx = parseInt(editBtn.dataset.editIdx);
-    const data = testEditData[idx];
-    if (data) {
-      startEdit(idx, data.original, data.userMsg);
-    } else {
-      // Fallback: get text from the bubble itself
-      const textEl = document.getElementById('test-text-' + idx);
-      if (textEl) startEdit(idx, textEl.innerText, '');
-    }
-  }
-});
-
-function startEdit(idx, originalText, userMsg) {
-  const textEl = document.getElementById('test-text-' + idx);
-  if (!textEl) return;
-  // Store in testEditData
-  testEditData[idx] = { original: originalText, userMsg: userMsg };
-  var currentText = (originalText || '').replace(/<br>/g, '\n');
-  textEl.innerHTML = '<textarea class="bubble-edit-area" id="test-edit-' + idx + '">' + esc(currentText) + '</textarea>' +
-    '<div class="bubble-edit-actions">' +
-    '<button class="btn btn-sm btn-primary" data-submit-idx="' + idx + '">Применить корректировку</button>' +
-    '<button class="btn btn-sm btn-outline" data-cancel-idx="' + idx + '">Отмена</button>' +
-    '</div>';
-  document.getElementById('test-edit-' + idx).focus();
-}
-
-// Delegated handlers for submit/cancel edit
-document.addEventListener('click', function(e) {
-  var submitBtn = e.target.closest('[data-submit-idx]');
-  if (submitBtn) { submitEdit(parseInt(submitBtn.dataset.submitIdx)); return; }
-  var cancelBtn = e.target.closest('[data-cancel-idx]');
-  if (cancelBtn) {
-    var ci = parseInt(cancelBtn.dataset.cancelIdx);
-    var data = testEditData[ci];
-    var textEl = document.getElementById('test-text-' + ci);
-    if (textEl && data) textEl.innerHTML = (data.original || '').replace(/\n/g, '<br>');
-  }
-});
-
-async function submitEdit(idx) {
-  var textarea = document.getElementById('test-edit-' + idx);
-  if (!textarea) return;
-  var data = testEditData[idx] || {};
-  var correctedReply = textarea.value.trim();
-  var originalReply = data.original || '';
-  var userMessage = data.userMsg || '';
-
-  if (correctedReply === originalReply) { cancelEdit(idx, originalReply); return; }
-
-  // Update bubble text immediately
-  const textEl = document.getElementById('test-text-' + idx);
-  if (textEl) textEl.innerHTML = correctedReply.replace(/\n/g, '<br>');
-
-  // Show modal — AI analyzes and auto-applies
-  const modal = document.getElementById('train-modal');
-  const body = document.getElementById('train-modal-body');
-  const footer = document.getElementById('train-modal-footer');
-  modal.classList.add('show');
-  body.innerHTML = '<div class="loading"><div class="spinner"></div> AI анализирует и обновляет промпт...</div>';
-  footer.style.display = 'none';
-
-  try {
-    const res = await apiFetch('/train', {
-      method: 'POST',
-      body: JSON.stringify({
-        originalReply,
-        correctedReply,
-        history: App.state.chatHistory.slice(0, -1),
-        userMessage
-      })
-    });
-    const result = await res.json();
-
-    if (result.error) {
-      body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(result.error)}</p>`;
-      return;
-    }
-
-    let html = '';
-    var changes = result.changes || [];
-    var hasPrompt = changes.some(function(c) { return c === 'prompt'; });
-    var hasKnowledge = changes.some(function(c) { return c.startsWith('knowledge:'); });
-
-    if (result.explanation) {
-      html += '<div class="suggestion-block explanation"><h4>Анализ</h4><pre>' + esc(result.explanation) + '</pre></div>';
-    }
-
-    if (hasPrompt && result.rule) {
-      html += '<div class="suggestion-block prompt"><h4>Добавлено в промпт</h4><pre>' + esc(result.rule) + '</pre></div>';
-    }
-
-    if (hasKnowledge) {
-      var knowledgeChanges = changes.filter(function(c) { return c.startsWith('knowledge:'); }).join(', ');
-      html += '<div class="suggestion-block knowledge"><h4>Обновлено в базе знаний</h4><pre>' + esc(knowledgeChanges) + '</pre></div>';
-    }
-
-    if (result.applied) {
-      html += '<div class="suggestion-block" style="border-left:3px solid var(--success);background:var(--success-light)">' +
-        '<h4 style="color:var(--success)">Изменения применены автоматически</h4></div>';
-    }
-
-    if (!result.applied) {
-      html += '<p class="text-secondary">AI не нашёл что менять.</p>';
-    }
-
-    body.innerHTML = html;
-    footer.style.display = 'flex';
-
-    if (hasPrompt && hasKnowledge) showToast('Промпт и база знаний обновлены');
-    else if (hasPrompt) showToast('Промпт обновлён');
-    else if (hasKnowledge) showToast('База знаний обновлена');
-
-    // Reload knowledge if it was updated
-    if (hasKnowledge) App.state.knowledge = null;
-  } catch (err) {
-    body.innerHTML = `<p style="color:var(--danger)">Ошибка: ${esc(err.message)}</p>`;
-  }
-
-  saveChatToStorage();
-}
-
-function closeTrainModal() {
-  document.getElementById('train-modal').classList.remove('show');
-  trainSuggestions = null;
 }
 
 // ===== INIT =====
