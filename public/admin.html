@@ -216,6 +216,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .conv-item-dot.dot-green { background: var(--success); }
 .conv-item-dot.dot-red { background: var(--danger); }
 .conv-item-dot.dot-yellow { background: var(--warning); }
+.conv-item-dot.dot-orange { background: #f97316; }
+.conv-badge.ignore { background: #fff7ed; color: #c2410c; }
 .conv-item-body { flex: 1; min-width: 0; }
 .conv-item-phone { font-size: 14px; font-weight: 600; }
 .conv-item-preview { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
@@ -440,7 +442,8 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
             </div>
             <div class="conv-filters">
               <button class="conv-filter active" onclick="setConvFilter('all', this)">Все <span id="cnt-all" class="conv-cnt"></span></button>
-              <button class="conv-filter" onclick="setConvFilter('needsReply', this)">Без ответа <span id="cnt-needs" class="conv-cnt"></span></button>
+              <button class="conv-filter" onclick="setConvFilter('needsReply', this)">Ожидает менеджера <span id="cnt-needs" class="conv-cnt"></span></button>
+              <button class="conv-filter" onclick="setConvFilter('ignore', this)">Игнор <span id="cnt-ignore" class="conv-cnt"></span></button>
               <button class="conv-filter" onclick="setConvFilter('escalated', this)">Эскалации <span id="cnt-esc" class="conv-cnt"></span></button>
             </div>
           </div>
@@ -740,13 +743,13 @@ async function loadConversations() {
   } catch (err) { document.getElementById('conv-items').innerHTML = '<p class="text-secondary" style="padding:20px">Ошибка: ' + err.message + '</p>'; }
 }
 // Silent refresh — no flicker, updates list + selected conversation
+var _lastFollowupCheck = 0;
 async function loadConversationsSilent() {
   try {
     var res = await apiFetch('/logs?limit=50');
     var data = await res.json();
     App.state.conversations = data.logs || [];
     renderConvList();
-    // If a conversation is selected, refresh its messages
     if (App.state.selectedConv) {
       var updated = App.state.conversations.find(function(l) {
         return l.contactId === App.state.selectedConv.contactId;
@@ -756,25 +759,51 @@ async function loadConversationsSilent() {
         selectConv(updated);
       }
     }
+    // Check follow-ups every 5 minutes
+    if (Date.now() - _lastFollowupCheck > 300000) {
+      _lastFollowupCheck = Date.now();
+      try { await apiFetch('/followup', { method: 'POST' }); } catch {}
+    }
   } catch {}
 }
+// Helper: get silence duration for a dialog (ms since last user message, if bot replied last)
+function getClientSilence(log) {
+  var msgs = log.messages || [];
+  if (msgs.length === 0) return 0;
+  var lastUserIdx = -1, lastOutIdx = -1;
+  for (var i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === 'user' && lastUserIdx === -1) lastUserIdx = i;
+    if ((msgs[i].role === 'assistant' || msgs[i].role === 'manager' || msgs[i].role === 'admin') && lastOutIdx === -1) lastOutIdx = i;
+    if (lastUserIdx !== -1 && lastOutIdx !== -1) break;
+  }
+  // If last outgoing is after last user msg = client is silent
+  if (lastOutIdx > lastUserIdx && log.updatedAt) {
+    return Date.now() - new Date(log.updatedAt).getTime();
+  }
+  return 0;
+}
+
 function renderConvList() {
   var all = App.state.conversations;
   var needsCount = all.filter(function(l) { return l.needsReply; }).length;
   var escCount = all.filter(function(l) { return l.escalated && !l.resolved; }).length;
+  var ignoreCount = all.filter(function(l) { return !l.needsReply && getClientSilence(l) > 86400000; }).length;
 
   // Update counters
   document.getElementById('cnt-all').textContent = all.length || '';
   document.getElementById('cnt-needs').textContent = needsCount || '';
   document.getElementById('cnt-esc').textContent = escCount || '';
+  document.getElementById('cnt-ignore').textContent = ignoreCount || '';
 
   // Update nav badge
   var badge = document.getElementById('nav-esc-badge');
-  if (needsCount > 0) { badge.textContent = needsCount; badge.style.display = ''; }
+  var totalAttention = needsCount + ignoreCount;
+  if (totalAttention > 0) { badge.textContent = totalAttention; badge.style.display = ''; }
   else { badge.style.display = 'none'; }
 
   var list = all;
   if (App.state.convFilter === 'needsReply') list = all.filter(function(l) { return l.needsReply; });
+  if (App.state.convFilter === 'ignore') list = all.filter(function(l) { return !l.needsReply && getClientSilence(l) > 86400000; });
   if (App.state.convFilter === 'escalated') list = all.filter(function(l) { return l.escalated && !l.resolved; });
   if (App.state.searchQuery) list = list.filter(function(l) { return (l.phone||l.contactId||'').includes(App.state.searchQuery); });
 
@@ -783,31 +812,23 @@ function renderConvList() {
   el.innerHTML = list.map(function(log) {
     var lastMsg = (log.messages||[]).filter(function(m){return m.role==='user'}).pop();
     var active = App.state.selectedConv && App.state.selectedConv.contactId === log.contactId ? ' active' : '';
+    var silence = getClientSilence(log);
     var badges = '';
     if (log.isPaid) badges += '<span class="conv-badge paid">клиент</span>';
-    if (log.needsReply) badges += '<span class="conv-badge needs">без ответа</span>';
+    if (log.needsReply) badges += '<span class="conv-badge needs">ожидает менеджера</span>';
+    if (!log.needsReply && silence > 259200000) badges += '<span class="conv-badge ignore">молчит 3д+</span>';
+    else if (!log.needsReply && silence > 86400000) badges += '<span class="conv-badge ignore">молчит 24ч+</span>';
 
-    // Dot color logic:
-    // red = needs manager reply
-    // green = paid/existing client from client list
-    // yellow = client hasn't replied in 24h+
-    // gray = bot is handling (default)
+    // Dot: red=needs manager, green=paid client, orange=silent 3d+, yellow=silent 24h+, gray=normal
     var dotClass = 'dot-gray';
     if (log.needsReply) {
       dotClass = 'dot-red';
     } else if (log.isPaid) {
       dotClass = 'dot-green';
-    } else if (lastMsg && log.updatedAt) {
-      var lastUserMsg = (log.messages||[]).filter(function(m){return m.role==='user'}).pop();
-      var lastBotMsg = (log.messages||[]).filter(function(m){return m.role==='assistant'||m.role==='manager'||m.role==='admin'}).pop();
-      // Yellow if last message was from bot/manager and client hasn't replied in 24h
-      if (lastBotMsg && lastUserMsg) {
-        var botIdx = (log.messages||[]).lastIndexOf(lastBotMsg);
-        var userIdx = (log.messages||[]).lastIndexOf(lastUserMsg);
-        if (botIdx > userIdx && (Date.now() - new Date(log.updatedAt).getTime()) > 86400000) {
-          dotClass = 'dot-yellow';
-        }
-      }
+    } else if (silence > 259200000) {
+      dotClass = 'dot-orange';
+    } else if (silence > 86400000) {
+      dotClass = 'dot-yellow';
     }
 
     return '<div class="conv-item' + active + '" onclick="selectConv(' + esc(JSON.stringify(log)).replace(/"/g,'&quot;') + ')">' +
