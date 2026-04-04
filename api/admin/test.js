@@ -12,13 +12,9 @@ module.exports = async function handler(req, res) {
     const { message, history = [] } = req.body;
 
     if (message === "__debug_env__") {
-      var kv = require("../../lib/kv").kv;
-      var debugMsgs = [];
-      try { debugMsgs = (await kv.get("debug:msgs")) || []; } catch {}
       return res.status(200).json({
         hasOpenAI: !!process.env.OPENAI_API_KEY,
-        nodeVersion: process.version,
-        debugMsgs: debugMsgs
+        nodeVersion: process.version
       });
     }
 

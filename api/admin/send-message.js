@@ -1,7 +1,7 @@
-const { checkAuth } = require("./_auth");
-const { sendMessage } = require("../../lib/wazzup");
-const { kv } = require("../../lib/kv");
-const { addMessage } = require("../../lib/conversation");
+var { checkAuth } = require("./_auth");
+var { sendMessage } = require("../../lib/wazzup");
+var { kv } = require("../../lib/kv");
+var { addMessage, getHistory } = require("../../lib/conversation");
 
 module.exports = async function handler(req, res) {
   if (!checkAuth(req, res)) return;
@@ -11,28 +11,32 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { channelId, chatId, text } = req.body;
+    var { channelId, chatId, text } = req.body;
 
     if (!channelId || !chatId || !text) {
       return res.status(400).json({ error: "channelId, chatId, and text are required" });
     }
 
     // Send via Wazzup
-    const sent = await sendMessage(channelId, chatId, text);
-    if (!sent) {
+    var sentId = await sendMessage(channelId, chatId, text);
+    if (!sentId) {
       return res.status(500).json({ error: "Failed to send message" });
     }
 
-    // Update conversation history (so bot has context)
-    await addMessage(chatId, "assistant", text);
+    // Mark as bot-sent to avoid saving echo
+    if (typeof sentId === "string") {
+      try { await kv.set("sent:" + sentId, 1, { ex: 300 }); } catch {}
+    }
 
-    // Update log entry
+    // Save to conversation history as "admin" role
+    await addMessage(chatId, "admin", text);
+
+    // Sync log from conversation history (single source of truth)
     try {
-      const logKey = `log:${chatId}`;
-      const log = await kv.get(logKey);
+      var logKey = "log:" + chatId;
+      var log = await kv.get(logKey);
       if (log) {
-        log.messages = log.messages || [];
-        log.messages.push({ role: "admin", content: text });
+        log.messages = await getHistory(chatId);
         log.needsReply = false;
         log.escalated = false;
         log.updatedAt = new Date().toISOString();

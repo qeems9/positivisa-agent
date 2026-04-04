@@ -5,7 +5,7 @@ const { escalate } = require("../lib/escalation");
 const { transcribeVoice } = require("../lib/voice");
 const { kv } = require("../lib/kv");
 
-var processedIds = new Set();
+// Dedup relies on KV only (in-memory Set doesn't persist across serverless invocations)
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -70,13 +70,6 @@ async function processMessage(msg, botEnabled) {
   if (chatType && chatType !== "whatsapp") return;
   if (!contactId) return;
 
-  // Debug: log all messages
-  try {
-    var debugList = (await kv.get("debug:msgs")) || [];
-    debugList.unshift({ chatId: chatId, msgId: messageId, isEcho: isEcho, authorType: authorType, text: (text||'').substring(0,30), ts: new Date().toISOString() });
-    await kv.set("debug:msgs", debugList.slice(0, 30), { ex: 3600 });
-  } catch {}
-
   // --- Outgoing messages ---
   if (isEcho || authorType === "manager" || authorType === "bot") {
     if (text) {
@@ -111,15 +104,14 @@ async function processMessage(msg, botEnabled) {
 
   if (!text && messageType === "text") return;
 
-  // --- Dedup ---
+  // --- Dedup (KV only, persists across serverless invocations) ---
   if (messageId) {
-    if (processedIds.has(messageId)) return;
     try {
-      var exists = await kv.get("dedup:" + messageId);
+      var dedupKey = "dedup:" + messageId;
+      var exists = await kv.get(dedupKey);
       if (exists) return;
-      await kv.set("dedup:" + messageId, 1, { ex: 3600 });
+      await kv.set(dedupKey, 1, { ex: 3600 });
     } catch {}
-    processedIds.add(messageId);
   }
 
   // --- Paid clients → save + mark needsReply (NO group notification) ---
