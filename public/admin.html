@@ -212,8 +212,10 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .conv-item:hover { background: var(--bg); }
 .conv-item.active { background: var(--accent-light); }
 .conv-item-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
-.conv-item-dot.escalated { background: var(--danger); }
-.conv-item-dot.normal { background: var(--success); }
+.conv-item-dot.dot-gray { background: #94a3b8; }
+.conv-item-dot.dot-green { background: var(--success); }
+.conv-item-dot.dot-red { background: var(--danger); }
+.conv-item-dot.dot-yellow { background: var(--warning); }
 .conv-item-body { flex: 1; min-width: 0; }
 .conv-item-phone { font-size: 14px; font-weight: 600; }
 .conv-item-preview { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
@@ -784,7 +786,30 @@ function renderConvList() {
     var badges = '';
     if (log.isPaid) badges += '<span class="conv-badge paid">клиент</span>';
     if (log.needsReply) badges += '<span class="conv-badge needs">без ответа</span>';
-    var dotClass = log.needsReply ? 'escalated' : 'normal';
+
+    // Dot color logic:
+    // red = needs manager reply
+    // green = paid/existing client from client list
+    // yellow = client hasn't replied in 24h+
+    // gray = bot is handling (default)
+    var dotClass = 'dot-gray';
+    if (log.needsReply) {
+      dotClass = 'dot-red';
+    } else if (log.isPaid) {
+      dotClass = 'dot-green';
+    } else if (lastMsg && log.updatedAt) {
+      var lastUserMsg = (log.messages||[]).filter(function(m){return m.role==='user'}).pop();
+      var lastBotMsg = (log.messages||[]).filter(function(m){return m.role==='assistant'||m.role==='manager'||m.role==='admin'}).pop();
+      // Yellow if last message was from bot/manager and client hasn't replied in 24h
+      if (lastBotMsg && lastUserMsg) {
+        var botIdx = (log.messages||[]).lastIndexOf(lastBotMsg);
+        var userIdx = (log.messages||[]).lastIndexOf(lastUserMsg);
+        if (botIdx > userIdx && (Date.now() - new Date(log.updatedAt).getTime()) > 86400000) {
+          dotClass = 'dot-yellow';
+        }
+      }
+    }
+
     return '<div class="conv-item' + active + '" onclick="selectConv(' + esc(JSON.stringify(log)).replace(/"/g,'&quot;') + ')">' +
       '<div class="conv-item-dot ' + dotClass + '"></div>' +
       '<div class="conv-item-body">' +
