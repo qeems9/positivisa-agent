@@ -43,6 +43,9 @@ async function saveLog(contactId, chatId, channelId, opts) {
       escalated: (opts && opts.escalated) || false,
       needsReply: (opts && opts.needsReply) || false,
       isPaid: (opts && opts.isPaid) || existing.isPaid || false,
+      // Reset followup flags when client sends a new message (timer restarts)
+      followup3dSent: (opts && (opts.escalated || opts.needsReply)) ? existing.followup3dSent : false,
+      followup7dSent: (opts && (opts.escalated || opts.needsReply)) ? existing.followup7dSent : false,
       updatedAt: new Date().toISOString(),
     };
     await kv.set(logKey, log, { ex: 30 * 86400 });
