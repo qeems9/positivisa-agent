@@ -199,11 +199,9 @@ async function processMessage(msg, botEnabled) {
     }
     var msgLower = messageText.toLowerCase();
     var escReason = "требуется менеджер";
-    // Client giving phone number or asking for invoice
-    if (msgLower.includes("на этот") || msgLower.includes("на этот номер") || msgLower.match(/\+?\d{10,}/) || msgLower.includes("выставь") || msgLower.includes("выставите")) {
+    // Client giving phone number for invoice
+    if (msgLower.includes("на этот") || msgLower.match(/\+?\d{10,}/) || msgLower.includes("выставь") || msgLower.includes("выставите")) {
       escReason = "ждёт счёт на оплату";
-    } else if (msgLower.includes("оплат") || msgLower.includes("переводить") || msgLower.includes("начнем") || msgLower.includes("начать") || msgLower.includes("счёт") || msgLower.includes("счет") || msgLower.includes("kaspi")) {
-      escReason = "хочет оплатить";
     }
     await saveLog(contactId, chatId, channelId, { escalated: true, needsReply: true });
     await escalate(channelId, chatId, await getHistory(contactId), escReason);
