@@ -3,8 +3,10 @@ var { kv } = require("../../lib/kv");
 var { sendMessage } = require("../../lib/wazzup");
 var { addMessage, getHistory } = require("../../lib/conversation");
 
+var FOLLOWUP_2D_THINKING = "Здравствуйте, подскажите, готовы начать процесс подачи?";
 var FOLLOWUP_3D = "Здравствуйте! К сожалению, не получили от вас никакого ответа. Подскажите вопрос по визе еще актуален?";
 var FOLLOWUP_7D = "Здравствуйте! Не получили от вас никакого ответа. Сохраните наш номер на будущее \u{1F607}\nИ обращайтесь если понадобится наша помощь, а пока закрываем вашу заявку";
+var TWO_DAYS = 2 * 24 * 60 * 60 * 1000;
 var THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
 var SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
 
@@ -46,10 +48,15 @@ module.exports = async function handler(req, res) {
           textToSend = FOLLOWUP_7D;
           log.followup7dSent = true;
         }
-        // 3+ days: first reminder
+        // 3+ days: reminder
         else if (silence >= THREE_DAYS && !log.followup3dSent) {
           textToSend = FOLLOWUP_3D;
           log.followup3dSent = true;
+        }
+        // 2+ days: "thinking" client follow-up
+        else if (silence >= TWO_DAYS && log.thinkingClient && !log.followup2dSent) {
+          textToSend = FOLLOWUP_2D_THINKING;
+          log.followup2dSent = true;
         }
 
         if (textToSend) {

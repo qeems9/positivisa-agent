@@ -3,6 +3,9 @@
     "api/webhook.js": {
       "maxDuration": 30
     },
+    "api/process-buffer.js": {
+      "maxDuration": 55
+    },
     "api/admin/*.js": {
       "maxDuration": 30
     }

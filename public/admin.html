@@ -275,7 +275,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
 .faq-row:nth-child(even) { background: var(--bg); margin: 0 -4px; padding: 10px 4px; border-radius: 4px; }
 
 /* ===== PAGE: PROMPT ===== */
-.prompt-editor { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.6; min-height: 450px; }
 .char-count { font-size: 12px; margin-top: 6px; }
 .char-count.ok { color: var(--success); }
 .char-count.warn { color: var(--warning); }
@@ -381,10 +380,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
       База знаний
     </div>
-    <div class="nav-item" data-page="prompt" onclick="navigateTo('prompt')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-      Промпт
-    </div>
     <div class="nav-item" data-page="clients" onclick="navigateTo('clients')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
       Клиенты
@@ -482,21 +477,6 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans
       </div>
     </div>
 
-    <!-- PAGE: Prompt -->
-    <div class="page page-padded" id="page-prompt">
-      <div class="info-banner">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        Изменения применяются мгновенно ко всем новым диалогам
-      </div>
-      <div id="prompt-loading" class="loading"><div class="spinner"></div> Загрузка...</div>
-      <div id="prompt-content" style="display:none">
-        <textarea class="textarea prompt-editor" id="prompt-textarea" oninput="updateCharCount()"></textarea>
-        <div class="char-count" id="prompt-chars">0 символов</div>
-        <div class="text-right mt-8">
-          <button class="btn btn-primary" onclick="savePrompt()">Сохранить промпт</button>
-        </div>
-      </div>
-    </div>
 
     <!-- PAGE: Chat Test -->
     <!-- PAGE: Clients -->
@@ -599,7 +579,7 @@ function navigateTo(page) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.querySelector('.nav-item[data-page="' + page + '"]').classList.add('active');
-  var titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', clients: 'Клиенты', prompt: 'Промпт', templates: 'Шаблоны', chattest: 'Чат-тест' };
+  var titles = { dashboard: 'Дашборд', conversations: 'Диалоги', knowledge: 'База знаний', clients: 'Клиенты', templates: 'Шаблоны', chattest: 'Чат-тест' };
   document.getElementById('topbar-title').textContent = titles[page] || '';
   toggleSidebar(false);
 
@@ -613,7 +593,7 @@ function navigateTo(page) {
     _convInterval = setInterval(function() { loadConversationsSilent(); }, 10000);
   }
   if (page === 'knowledge' && !App.state.knowledge) loadKnowledge();
-  if (page === 'prompt') loadPrompt();
+
   if (page === 'clients') loadClients();
   if (page === 'templates') loadTemplates();
 }
@@ -1047,33 +1027,6 @@ async function saveKnowledge() {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
-// ===== PROMPT =====
-async function loadPrompt() {
-  document.getElementById('prompt-loading').style.display = 'flex';
-  document.getElementById('prompt-content').style.display = 'none';
-  try {
-    const res = await apiFetch('/prompt');
-    const data = await res.json();
-    document.getElementById('prompt-textarea').value = data.prompt;
-    updateCharCount();
-    document.getElementById('prompt-loading').style.display = 'none';
-    document.getElementById('prompt-content').style.display = 'block';
-  } catch (err) { showToast(err.message, 'error'); }
-}
-function updateCharCount() {
-  const len = document.getElementById('prompt-textarea').value.length;
-  const el = document.getElementById('prompt-chars');
-  el.textContent = len + ' символов';
-  el.className = 'char-count ' + (len < 4000 ? 'ok' : len < 8000 ? 'warn' : 'over');
-}
-async function savePrompt() {
-  try {
-    const res = await apiFetch('/prompt', { method: 'POST', body: JSON.stringify({ prompt: document.getElementById('prompt-textarea').value }) });
-    const data = await res.json();
-    if (data.ok) showToast('Промпт сохранён'); else showToast(data.error||'Ошибка', 'error');
-  } catch (err) { showToast(err.message, 'error'); }
-}
-
 // ===== CLIENTS =====
 async function loadClients() {
   document.getElementById('clients-loading').style.display = 'flex';
@@ -1228,22 +1181,86 @@ async function saveTemplate(idx) {
 }
 
 // ===== CHAT TEST =====
-async function sendChat() {
+var _chatBuffer = [];
+var _chatDebounceTimer = null;
+var _chatCountdownTimer = null;
+
+function sendChat() {
   var input = document.getElementById('test-input');
   var text = input.value.trim();
   if (!text) return;
   input.value = '';
   appendTestMsg('user', text);
+  _chatBuffer.push(text);
+
+  // Reset debounce timer
+  if (_chatDebounceTimer) clearTimeout(_chatDebounceTimer);
+  if (_chatCountdownTimer) clearInterval(_chatCountdownTimer);
+
+  // Show countdown
+  var secondsLeft = 5;
+  updateTypingIndicator(secondsLeft);
+  _chatCountdownTimer = setInterval(function() {
+    secondsLeft--;
+    if (secondsLeft <= 0) { clearInterval(_chatCountdownTimer); _chatCountdownTimer = null; }
+    else updateTypingIndicator(secondsLeft);
+  }, 1000);
+
+  _chatDebounceTimer = setTimeout(function() {
+    if (_chatCountdownTimer) { clearInterval(_chatCountdownTimer); _chatCountdownTimer = null; }
+    removeTypingIndicator();
+    flushChatBuffer();
+  }, 5000);
+}
+
+function updateTypingIndicator(sec) {
+  var el = document.getElementById('test-typing');
+  if (!el) {
+    var div = document.createElement('div');
+    div.id = 'test-typing';
+    div.className = 'test-msg bot';
+    div.style.opacity = '0.6';
+    div.style.fontStyle = 'italic';
+    document.getElementById('test-messages').appendChild(div);
+    var cont = document.getElementById('test-messages');
+    cont.scrollTop = cont.scrollHeight;
+  }
+  el = document.getElementById('test-typing');
+  if (el) el.textContent = 'Ожидание... ' + sec + ' сек (можете дописать)';
+}
+function removeTypingIndicator() {
+  var el = document.getElementById('test-typing');
+  if (el) el.remove();
+}
+
+async function flushChatBuffer() {
+  if (_chatBuffer.length === 0) return;
+  var combinedText = _chatBuffer.join('\n');
+  _chatBuffer = [];
+
+  // Show "typing" while AI processes
+  var typingDiv = document.createElement('div');
+  typingDiv.id = 'test-typing';
+  typingDiv.className = 'test-msg bot';
+  typingDiv.style.opacity = '0.6';
+  typingDiv.style.fontStyle = 'italic';
+  typingDiv.textContent = 'Бот печатает...';
+  document.getElementById('test-messages').appendChild(typingDiv);
+
   try {
-    var res = await apiFetch('/test', { method: 'POST', body: JSON.stringify({ message: text, history: App.state.chatHistory }) });
+    var res = await apiFetch('/test', { method: 'POST', body: JSON.stringify({ message: combinedText, history: App.state.chatHistory }) });
     var data = await res.json();
+    removeTypingIndicator();
     if (data.error) { appendTestMsg('bot', 'Ошибка: ' + data.error); return; }
     var reply = data.reply || '(пустой ответ)';
-    App.state.chatHistory.push({ role: 'user', content: text });
+    App.state.chatHistory.push({ role: 'user', content: combinedText });
     App.state.chatHistory.push({ role: 'assistant', content: reply });
     appendTestMsg('bot', reply, data.shouldEscalate, data.tokensUsed);
     saveChatToStorage();
-  } catch (err) { appendTestMsg('bot', 'Ошибка: ' + (err.message||'')); }
+  } catch (err) {
+    removeTypingIndicator();
+    appendTestMsg('bot', 'Ошибка: ' + (err.message||''));
+  }
 }
 function resetChat() { App.state.chatHistory = []; document.getElementById('test-messages').innerHTML = ''; saveChatToStorage(); }
 function saveChatToStorage() {

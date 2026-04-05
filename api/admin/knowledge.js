@@ -1,6 +1,5 @@
 const { kv } = require("../../lib/kv");
 const { checkAuth } = require("./_auth");
-const defaultKnowledge = require("../../config/knowledge");
 
 module.exports = async function handler(req, res) {
   if (!checkAuth(req, res)) return;
@@ -8,9 +7,10 @@ module.exports = async function handler(req, res) {
   if (req.method === "GET") {
     try {
       const stored = await kv.get("knowledge");
-      return res.status(200).json(stored || defaultKnowledge);
-    } catch {
-      return res.status(200).json(defaultKnowledge);
+      if (!stored) return res.status(500).json({ error: "Knowledge base not found in KV" });
+      return res.status(200).json(stored);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
   }
 
